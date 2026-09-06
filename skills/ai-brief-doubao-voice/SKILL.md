@@ -1,41 +1,51 @@
 ---
 name: ai-brief-doubao-voice
-description: Synthesize AI每日早报 narration audio using Doubao in-conversation text-to-audio with a fixed "温柔桃子" gentle-female voice profile, proportional subtitle timing, and OpenMontage loudness mixing. Replaces the Azure/Gemini speech-quality skill in the Doubao-adapted pipeline.
+description: Synthesize AI每日早报 narration audio using Doubao voice cloning (audio_to_audio_plus + example-audio.mp3 reference), proportional subtitle timing, and OpenMontage loudness mixing. v2.0 replaces the text-description TTS with reference-audio voice cloning.
 metadata:
   author: local-project
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
-# AI早报语音合成（豆包适配版）
+# AI早报语音合成（豆包语音克隆版）
 
-本 skill 是原 `ai-brief-speech-quality` 的豆包适配版本。原版本使用 Azure TTS（Xiaochen DragonHD）作为生产默认，依赖 Azure Speech SDK 的 WordBoundary 回调做字级字幕对齐。本版本使用豆包对话内文生音频工具，固定"温柔桃子"风格音色，字幕走比例估算路径。
+本 skill 是原 `ai-brief-speech-quality` 的豆包适配版本 v2.0。v1.x 使用 `text_to_audio_plus` + 固定音色描述（"温柔桃子风格"）。v2.0 改用 `audio_to_audio_plus` 语音克隆，以项目根目录的 `example-audio.mp3` 为音色参考，字幕仍走比例估算路径。
 
 ## 与原版本的核心差异
 
-| 维度 | 原 Azure 版 | 豆包适配版 |
-|------|-----------|-----------|
-| TTS 工具 | Azure Speech SDK / REST API | 豆包 `text_to_audio_plus`（对话内文生音频） |
-| 音色 | Azure `zh-CN-Xiaochen:DragonHDLatestNeural` | 固定"温柔桃子"风格描述（温柔甜美系女声） |
-| 字幕对齐 | Azure WordBoundary 回调（字级精确） | 比例估算（`doubao-proportional`），文字 100% 来自写稿文案 |
-| API 密钥 | 需要 `AZURE_SPEECH_KEY` | 不需要，豆包产品功能内包含 |
-| 费用 | 按 Azure 计费 | 免费，包含在豆包使用中 |
-| 审核文件 | `azure_audio_manifest.json` | `doubao_audio_manifest.json` |
+| 维度 | 原 Azure 版 | v1.x 豆包描述式 | v2.0 豆包语音克隆（当前） |
+|------|-----------|----------------|------------------------|
+| TTS 工具 | Azure Speech SDK / REST API | `text_to_audio_plus` | `audio_to_audio_plus` |
+| 音色 | Azure `zh-CN-Xiaochen:DragonHDLatestNeural` | 固定文字描述（"温柔桃子风格"） | 参考音频 `example-audio.mp3` 克隆 |
+| 字幕对齐 | Azure WordBoundary 回调（字级精确） | 比例估算 | 比例估算 |
+| API 密钥 | 需要 `AZURE_SPEECH_KEY` | 不需要 | 不需要 |
+| 审核文件 | `azure_audio_manifest.json` | `doubao_audio_manifest.json` | `doubao_audio_manifest.json` (provider=doubao-voice-clone) |
 
-## 固定音色描述（温柔桃子风格）
+## 语音克隆参考音频
 
-所有 segment 的 TTS 生成必须使用以下音色描述，**逐字使用，不修改**：
+- **文件**：项目根目录 `example-audio.mp3`
+- **时长**：约 29.8 秒
+- **要求**：单人说话、无背景音乐、无重叠语音、录音清晰
+- **分发**：随 Git 仓库分发，云电脑重置后 `git pull` 即可恢复
+- **替换**：如需更换音色，替换此文件即可（建议 10-30 秒干净人声），全片自动生效
 
-> 年轻女性，声音活泼甜美，充满活力，像晨间电台元气女主播，语速偏快，咬字清晰有节奏感，情绪明亮有感染力，无背景音无杂音，纯人声
+## 固定合成指令（语音克隆）
 
-如需微调音色，只修改本文件中的这段描述，所有 segment 自动生效。修改后需在 `doubao_audio_manifest.json` 的 `voice` 字段记录变更。
+所有 segment 的 TTS 生成必须使用以下格式，**逐字使用，不修改**：
+
+> 工具：`audio_to_audio_plus`
+> 参考音频：`@音频1` = 项目根目录 `example-audio.mp3` 的绝对路径
+> Prompt：`"用参考音频的音色、语速和朗读风格，清晰朗读以下文字，不增删字词，无背景音无杂音：{spoken_text}"`
+
+如需微调朗读风格，只修改本文件中的这段 prompt，所有 segment 自动生效。修改后需在 `doubao_audio_manifest.json` 的 `voice` 字段记录变更。
 
 ## 前置条件
 
 1. `narration_plan.json` 已生成且通过校验
 2. `editorial_quality_report.json` = `pass`
-3. `doubao_tts_adapter.py` 可用（项目 `ai_morning_brief/` 目录下）
-4. 豆包 `text_to_audio_plus` 工具可用
-5. ffmpeg 可用（用于音频归一化）
+3. `example-audio.mp3` 存在于项目根目录
+4. `doubao_tts_adapter.py` 可用（项目 `ai_morning_brief/` 目录下）
+5. 豆包 `audio_to_audio_plus` 工具可用
+6. ffmpeg 可用（用于音频归一化）
 
 ## 完整流程
 
@@ -58,16 +68,16 @@ python3 -m ai_morning_brief.doubao_tts_adapter prepare --date YYYY-MM-DD
 
 ### 第 2 步：逐段合成音频
 
-对清单中的每个 segment，使用豆包 `text_to_audio_plus` 工具：
+对清单中的每个 segment，使用豆包 `audio_to_audio_plus` 工具（语音克隆）：
 
-- **Prompt**：固定音色描述 + 要合成的文字
-  - 格式：`"{音色描述}"。朗读以下文字："{spoken_text}"`
-  - 示例：`"年轻女性，声音活泼甜美，充满活力，像晨间电台元气女主播，语速偏快，咬字清晰有节奏感，情绪明亮有感染力，无背景音无杂音，纯人声"。朗读以下文字："大家好，欢迎收看今天的 AI 每日早报。"`
+- **参考音频**：`@音频1` = 项目根目录 `example-audio.mp3` 的绝对路径
+- **Prompt**：`"用参考音频的音色、语速和朗读风格，清晰朗读以下文字，不增删字词，无背景音无杂音：{spoken_text}"`
 - **输出格式**：WAV
 - **保存路径**：清单中 `output_path` 指定的路径（`assets/audio/narration-{segment_id}.wav`）
 
 注意事项：
 - 每段单独合成，不要把多段文字合并成一次调用
+- 参考音频必须是同一个 `example-audio.mp3`，保持全片音色一致
 - 合成后立即保存到指定路径，不要修改文件名
 - 如果某段合成失败，记录失败的 segment_id，继续合成其他段，最后统一报告
 - 不要对音频进行任何后期处理（降噪、变速、音量调整等），finalize 步骤会统一处理
@@ -108,7 +118,7 @@ OpenMontage/.venv/bin/python -m ai_morning_brief.pipeline run \
   --reuse-source \
   --reuse-audio \
   --env-file .env \
-  --speech-provider doubao
+  --speech-provider doubao-voice-clone
 ```
 
 pipeline 自动完成：
@@ -162,6 +172,7 @@ pipeline 自动完成：
 
 - 不调用任何外部 TTS API（Azure、Google、ElevenLabs 等）
 - 不需要任何 API 密钥
+- 使用 `audio_to_audio_plus` 语音克隆，参考音频固定为 `example-audio.mp3`
 - 不修改生成的音频内容（只做格式归一化和静音填充）
 - 不使用语音识别结果替换写稿文案作为字幕
 - 每段音频单独合成，不合并

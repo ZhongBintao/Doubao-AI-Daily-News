@@ -142,7 +142,14 @@ def _subtitle_alignment_report(
     for entry in entries:
         segment_id = str(entry.get("segment_id") or "")
         if not aligned:
-            mode = "gemini-proportional" if provider_name == "gemini" else "proportional-fallback"
+            if provider_name == "gemini":
+                mode = "gemini-proportional"
+            elif provider_name == "doubao-voice-clone":
+                mode = "doubao-voice-clone-proportional"
+            elif provider_name == "doubao":
+                mode = "doubao-proportional"
+            else:
+                mode = "proportional-fallback"
         else:
             mode = str(entry.get("alignment_provider") or "provider-word-timestamp")
         segments.append({
@@ -154,7 +161,7 @@ def _subtitle_alignment_report(
     return {
         "requested": bool(aligned),
         "mode": modes[0] if len(modes) == 1 else "mixed" if modes else "none",
-        "approximate": any(mode == "gemini-proportional" or mode == "proportional-fallback" for mode in modes),
+        "approximate": any(mode in {"gemini-proportional", "proportional-fallback", "doubao-proportional", "doubao-voice-clone-proportional"} for mode in modes),
         "proportional_fallback_segments": [segment["segment_id"] for segment in segments if segment["mode"] == "proportional-fallback"],
         "compatibility_segments": [segment["segment_id"] for segment in segments if segment["mode"] == "azure-stt-compat"],
         "segments": segments,
@@ -368,7 +375,7 @@ def reuse_synthesized_audio(
     provider_name = str(speech_provider or "").strip().lower()
     if provider_name == "gemini":
         manifest_name = "google_audio_manifest.json"
-    elif provider_name == "doubao":
+    elif provider_name in {"doubao", "doubao-voice-clone"}:
         manifest_name = "doubao_audio_manifest.json"
     else:
         manifest_name = "azure_audio_manifest.json"
@@ -398,7 +405,7 @@ def reuse_synthesized_audio(
         audio_path = project_dir / "assets" / "audio" / f"narration-{segment_id}.wav"
         if entry is None or not audio_path.is_file() or audio_path.stat().st_size == 0:
             raise OpenMontageError(f"reusable audio is incomplete for {segment_id}")
-        if align and provider_name not in {"gemini", "doubao"}:
+        if align and provider_name not in {"gemini", "doubao", "doubao-voice-clone"}:
             alignment_path = project_dir / "artifacts" / "alignments" / f"{segment_id}.json"
             if not alignment_path.is_file() or alignment_path.stat().st_size == 0:
                 raise OpenMontageError(f"reusable subtitle alignment is missing for {segment_id}: {alignment_path}")
@@ -410,7 +417,7 @@ def reuse_synthesized_audio(
     audio_events = _audio_events(script, durations, audio_assets)
     music_boundaries = _music_boundaries(script, durations)
     final_mix = mix_audio(project_dir, narration, audio_assets, audio_events, music_boundaries)
-    subtitle_aligned = bool(align and provider_name not in {"gemini", "doubao"})
+    subtitle_aligned = bool(align and provider_name not in {"gemini", "doubao", "doubao-voice-clone"})
     subtitle_path, cues = write_subtitles(project_dir, script, durations, aligned=subtitle_aligned, spoken_durations=spoken_durations)
     subtitle_alignment = _subtitle_alignment_report(
         [entry for entry in manifest_data.get("segments", []) if isinstance(entry, Mapping)],
@@ -449,11 +456,12 @@ def synthesize_and_align(
             env_path=env_path,
             align=align,
         )
-    if speech_provider == "doubao":
+    if speech_provider in {"doubao", "doubao-voice-clone"}:
         raise OpenMontageError(
-            "doubao provider cannot synthesize directly; use doubao_tts_adapter.py to "
-            "pre-synthesize audio via the in-conversation voice synthesis tool, then run "
-            "pipeline run with --reuse-audio --speech-provider doubao"
+            f"{speech_provider} provider cannot synthesize directly; use the doubao TTS "
+            "adapter (or the daily orchestrator) to pre-synthesize audio via the "
+            "in-conversation voice synthesis tool, then run pipeline run with "
+            f"--reuse-audio --speech-provider {speech_provider}"
         )
     if speech_provider != "azure":
         raise OpenMontageError(f"unsupported speech provider: {speech_provider}")

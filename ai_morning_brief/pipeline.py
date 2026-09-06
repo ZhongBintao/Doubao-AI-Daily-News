@@ -267,16 +267,17 @@ def _preflight(openmontage_root: Path, *, prepare_only: bool, speech_provider: s
     }
     if not openmontage_root.is_dir():
         raise OpenMontageError(f"OpenMontage directory not found: {openmontage_root}")
-    if speech_provider not in {"azure", "gemini", "doubao"}:
+    if speech_provider not in {"azure", "gemini", "doubao", "doubao-voice-clone"}:
         raise OpenMontageError(f"unsupported speech provider: {speech_provider}")
     if not prepare_only and not reuse_audio:
         if speech_provider == "azure" and not os.environ.get("AZURE_SPEECH_KEY"):
             raise OpenMontageError("AZURE_SPEECH_KEY is not configured")
         if speech_provider == "gemini" and not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_AI_STUDIO_API_KEY")):
             raise OpenMontageError("GOOGLE_AI_STUDIO_API_KEY is not configured")
-        # doubao uses the in-conversation voice synthesis tool; no API key required.
-        # Audio must be pre-synthesized and placed via doubao_tts_adapter.py, then
-        # the pipeline runs with --reuse-audio --speech-provider doubao.
+        # doubao / doubao-voice-clone use the in-conversation voice synthesis tool;
+        # no API key required. Audio must be pre-synthesized and placed via the
+        # doubao TTS adapter (or the daily orchestrator), then the pipeline runs
+        # with --reuse-audio --speech-provider doubao[-voice-clone].
     return result
 
 
@@ -771,7 +772,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reuse-source", action="store_true", help="when rebuilding, reuse the frozen source snapshot bound to the editorial plan")
     parser.add_argument("--source-visual-mode", "--x-screenshot-mode", "--screenshot-mode", dest="source_visual_mode", choices=("off", "manual", "auto"), default=None, help="optional original-source visual intake: off, manual, or auto (Codex in-app browser)")
     parser.add_argument("--source-visual-min-stories", type=int, choices=(0, 1, 2), default=None, help="minimum source-visual stories required for acceptance; effective default is 0 or the prepared request value")
-    parser.add_argument("--speech-provider", choices=("azure", "gemini", "doubao"), default="azure", help="voice provider; Gemini uses GOOGLE_AI_STUDIO_API_KEY; doubao uses in-conversation voice synthesis (requires --reuse-audio)")
+    parser.add_argument("--speech-provider", choices=("azure", "gemini", "doubao", "doubao-voice-clone"), default="azure", help="voice provider; Gemini uses GOOGLE_AI_STUDIO_API_KEY; doubao/doubao-voice-clone use in-conversation voice synthesis (requires --reuse-audio)")
     parser.add_argument("--reuse-audio", action="store_true", help="reuse a completed provider manifest and rebuild local mix/render without another TTS call")
     parser.add_argument("--no-align", action="store_true", help="skip Azure STT alignment; intended only for local smoke runs")
     parser.add_argument("--limit", type=int, default=None, help="compatibility alias for --candidate-page-size")

@@ -47,6 +47,14 @@ DEFAULT_REGION = "southeastasia"
 # provider adapter, and audit manifest cannot drift apart.
 DEFAULT_AZURE_TTS_TEMPERATURE = 0.7
 
+# Doubao voice cloning (cloud-computer native production voice).
+# The reference audio ships with the repo so a cloud-computer reset only
+# needs a git pull to restore it.  Override via DOUBAO_VOICE_CLONE_REFERENCE.
+DEFAULT_VOICE_CLONE_REFERENCE_AUDIO = REPO_ROOT / "example-audio.mp3"
+DEFAULT_TTS_MODE = "voice-clone"
+DOUBAO_VOICE_CLONE_PROVIDER = "doubao-voice-clone"
+DOUBAO_VOICE_CLONE_ALIGNMENT = "doubao-voice-clone-proportional"
+
 # Optional source-visual mode is deliberately off by default. These values are
 # configuration points rather than editorial content, so production can tune
 # pacing without changing the frozen source or card schema.
