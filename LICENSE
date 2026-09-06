@@ -1,0 +1,48 @@
+# 许可说明
+
+本仓库包含两部分代码，适用**不同**许可，请分别遵守。
+
+## 1. 本仓库自有部分 — MIT
+
+适用范围：除 `OpenMontage/` 目录之外的全部内容，包括 `ai_morning_brief/`、
+`skills/`、`plugins/`、`entry-skill/`、`scripts/` 以及全部文档。
+
+采用 MIT 许可，条款全文见下方第三部分。
+
+## 2. OpenMontage/ 子目录 — AGPL-3.0
+
+`OpenMontage/` 是一个独立项目，采用 **GNU Affero General Public License v3.0**，
+完整条款见 `OpenMontage/LICENSE`，本仓库不作任何更改。
+
+说明：
+
+- 本仓库以 vendored 方式引入 OpenMontage，仅作为视频渲染引擎与 Python 运行时宿主使用，
+  未对其源码作修改。
+- 若你分发或修改了 `OpenMontage/` 下的代码，需履行 AGPL-3.0 的相应义务
+  （其中包括向使用者提供完整源码）。
+- 本仓库自有部分（MIT）与 `OpenMontage/`（AGPL-3.0）相互独立，
+  根目录下的 MIT 条款**不覆盖** `OpenMontage/` 目录。
+
+---
+
+## 3. MIT License（适用于第 1 部分）
+
+Copyright (c) 2026 ZhongBintao
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

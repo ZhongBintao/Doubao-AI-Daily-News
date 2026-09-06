@@ -110,7 +110,22 @@ export PATH="$BIN_DIR:$NODE_DIR/bin:\$PATH"
 export PROJECT_DIR="$PROJECT_DIR"
 EOF
 
-# --- 6. 终检 --------------------------------------------------------------
+# --- 6. 同步入口 skill 到豆包 .user_skills（幂等）-------------------------
+# 云电脑重置后 .user_skills 可能一并丢失，豆包就发现不了本 skill。
+# 这里每次自检都重新同步一次，让定时任务具备自愈能力。
+USER_SKILLS="${SUPER_DOUBAO_USER_SKILLS:-$HOME/.super_doubao/super-doubao-runtime/workspace/.user_skills}"
+if [ -d "$USER_SKILLS" ]; then
+  mkdir -p "$USER_SKILLS/ai-daily-news-studio"
+  if cp -R "$PROJECT_DIR/entry-skill/ai-daily-news-studio/." "$USER_SKILLS/ai-daily-news-studio/" 2>/dev/null; then
+    info "入口 skill 已同步到 $USER_SKILLS/ai-daily-news-studio"
+  else
+    warn "入口 skill 同步失败（不影响本次运行）"
+  fi
+else
+  warn "未找到 .user_skills 目录，跳过 skill 同步：$USER_SKILLS"
+fi
+
+# --- 7. 终检 --------------------------------------------------------------
 info "python : $("$PY" --version 2>&1)"
 info "node   : $(node --version 2>/dev/null) / npm $(npm --version 2>/dev/null || echo N/A)"
 info "ffmpeg : $(ffmpeg -version 2>/dev/null | head -n1 | awk '{print $3}')"

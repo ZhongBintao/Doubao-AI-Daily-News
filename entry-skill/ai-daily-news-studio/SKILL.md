@@ -10,6 +10,14 @@ metadata:
 
 从 AIHOT 精选 24 小时资讯，由豆包完成写稿、语音合成、封面生成，OpenMontage 渲染视频。零 API 密钥，全部使用豆包产品内功能。
 
+## 使用方式
+
+用户只需说「生成今天的 AI 每日早报」。
+
+本 skill 已自带仓库地址、克隆方式、环境自检、完整流程与交付物约定，
+**不需要用户在提示词里重复任何细节**。定时任务里写那一句话就够了；
+所有约定改在仓库里，云电脑下次运行 `git pull` 自动生效。
+
 ## 项目位置
 
 标准安装路径：`/home/user/.super_doubao/super-doubao-runtime/workspace/ai-daily-news-studio-codex-plugin/`
@@ -61,7 +69,16 @@ ffmpeg/ffprobe（官方源失败时自动回退国内镜像）、从 `.env.examp
 | API 密钥 | 不需要，全部使用豆包产品内功能 |
 | 视频规格 | 1920×1080 MP4，含人声 + 背景音乐 + 字幕 |
 
-## 日常运行流程（7 步）
+## 默认交付物（每次都要，不要询问用户是否需要）
+
+1. **视频** — `outputs/YYYY-MM-DD/renders/ai-daily-news-YYYY-MM-DD.mp4`（1920×1080）
+2. **封面** — 16:9 / 3:4 / 9:16 三张，位于 `release-kit/covers/`
+3. **发布文案整合包** — `outputs/YYYY-MM-DD/release-kit/`，
+   标题固定 `AI每日早报YYYY-MM-DD`，文案基于冻结素材撰写
+
+三者都是默认交付物，用户没提也要做。某项缺失必须在完成通知里写明原因，不能含糊带过。
+
+## 日常运行流程（8 步）
 
 详细操作见项目内 `豆包运行手册.md`。简要流程：
 
@@ -74,9 +91,11 @@ ffmpeg/ffprobe（官方源失败时自动回退国内镜像）、从 `.env.examp
    - 逐段调用 `text_to_audio_plus`，使用上方固定音色描述
    - `doubao_tts_adapter finalize` 归一化音频、自动填充短时长、生成 manifest
 6. **视频渲染**：`pipeline run --reuse-audio --speech-provider doubao`，自动完成字幕估算、混音、HyperFrames 渲染、质量门禁
-7. **封面生成**（可选）：按 `skills/ai-brief-cover-generator-doubao/SKILL.md` 执行，用 `image_edit` 生成 16:9/3:4/9:16 三种封面
+7. **封面生成**（默认）：按 `skills/ai-brief-cover-generator-doubao/SKILL.md` 执行，用 `image_edit` 生成 16:9/3:4/9:16 三种封面
+8. **发布文案整合包**（默认）：按 `skills/ai-brief-release-kit/SKILL.md` 执行，
+   `release_workflow.py prepare` 冻结文案 → `finalize` 把视频、封面、文案组装成发布包
 
-完成后汇总产出（视频路径、时长、大小、资讯条数）告知用户。
+完成后按「默认交付物」三项汇总告知用户：视频（路径/时长/大小）、三张封面、发布文案包。
 
 ## 关键文件路径
 
@@ -85,6 +104,9 @@ ffmpeg/ffprobe（官方源失败时自动回退国内镜像）、从 `.env.examp
 | 运行手册 | `项目/豆包运行手册.md` |
 | 语音规范 | `项目/skills/ai-brief-doubao-voice/SKILL.md` |
 | 封面规范 | `项目/skills/ai-brief-cover-generator-doubao/SKILL.md` |
+| 发布规范 | `项目/skills/ai-brief-release-kit/SKILL.md` |
+| 发布计划 | `项目/outputs/YYYY-MM-DD/release-kit/release_plan.json` |
+| 发布整合包 | `项目/outputs/YYYY-MM-DD/release-kit/` |
 | TTS 适配器 | `项目/ai_morning_brief/doubao_tts_adapter.py` |
 | 每日产出 | `项目/outputs/YYYY-MM-DD/` |
 | 最终视频 | `项目/outputs/YYYY-MM-DD/renders/ai-daily-news-YYYY-MM-DD.mp4` |

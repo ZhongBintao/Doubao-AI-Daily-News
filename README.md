@@ -3,6 +3,22 @@
 `AI Daily News Studio`（中文：`AI每日早报`）是一个面向 Codex 的内容生产插件，
 用于把 AIHOT 过去 24 小时的精选资讯，制作成可审计的中文 AI 资讯视频和私有发布整合包。
 
+## 豆包云电脑自动运行
+
+面向豆包云电脑的每日自动运行入口：
+
+- 入口 skill：`entry-skill/ai-daily-news-studio/SKILL.md`（放进豆包 `.user_skills/` 后被自动发现）
+- 操作手册：`豆包运行手册.md`（8 步流程）
+- 环境自检：`scripts/bootstrap_env.sh`（幂等，自动补装 venv / Node>=22 / ffmpeg+ffprobe）
+- 默认交付：视频 + 三种尺寸封面 + 发布文案整合包
+
+提示词只需一句「生成今天的 AI 每日早报」，仓库地址、环境自检、流程与交付物约定
+全部内置在入口 skill 里。详见 `快速开始.md`。
+
+> 云电脑会定期重置，重置后 `.user_skills` 与项目内 `.local/` 都会丢失，
+> 但自检脚本会在下次运行时自动重建（含重新同步入口 skill）。
+> 已生成的 `outputs/` 不回传仓库，重置即丢失，需要另行保存成片。
+
 ## 能做什么
 
 - 从 AIHOT 冻结精选资讯和来源链接。
