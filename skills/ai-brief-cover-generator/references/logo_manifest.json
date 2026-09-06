@@ -4,7 +4,10 @@
   "entries": [
     {
       "name": "Anthropic",
-      "aliases": ["Anthropic", "Claude"],
+      "aliases": [
+        "Anthropic",
+        "Claude"
+      ],
       "source_page_url": "https://www.anthropic.com/press-kit",
       "source_asset_url": "https://www.anthropic.com/favicon.ico",
       "asset": "assets/logos/anthropic.png",
@@ -13,7 +16,12 @@
     },
     {
       "name": "Sony Music",
-      "aliases": ["Sony Music", "Sony", "索尼", "索尼音乐"],
+      "aliases": [
+        "Sony Music",
+        "Sony",
+        "索尼",
+        "索尼音乐"
+      ],
       "source_page_url": "https://www.sonymusic.com/",
       "source_asset_url": "https://www.sonymusic.com/favicon.ico",
       "asset": "assets/logos/sony-music.png",
@@ -22,7 +30,13 @@
     },
     {
       "name": "Warner Music Group",
-      "aliases": ["Warner Music Group", "Warner Music", "Warner", "华纳", "华纳音乐"],
+      "aliases": [
+        "Warner Music Group",
+        "Warner Music",
+        "Warner",
+        "华纳",
+        "华纳音乐"
+      ],
       "source_page_url": "https://www.wmg.com/logo",
       "source_asset_url": "https://www.wmg.com/wp-content/uploads/2022/10/WMG-Logo-PNG.zip",
       "asset": "assets/logos/warner-music.png",
@@ -31,7 +45,9 @@
     },
     {
       "name": "Uber",
-      "aliases": ["Uber"],
+      "aliases": [
+        "Uber"
+      ],
       "source_page_url": "https://brand.uber.com/",
       "source_asset_url": "https://www.uber.com/favicon.ico",
       "asset": "assets/logos/uber.png",
@@ -40,7 +56,9 @@
     },
     {
       "name": "OpenAI",
-      "aliases": ["OpenAI"],
+      "aliases": [
+        "OpenAI"
+      ],
       "source_page_url": "https://openai.com/brand/",
       "source_asset_url": null,
       "asset": "assets/logos/openai-text-fallback.png",
@@ -49,11 +67,441 @@
     },
     {
       "name": "Hugging Face",
-      "aliases": ["Hugging Face", "HuggingFace"],
+      "aliases": [
+        "Hugging Face",
+        "HuggingFace"
+      ],
       "source_page_url": "https://huggingface.co/brand",
       "source_asset_url": "https://huggingface.co/datasets/huggingface/brand-assets/resolve/main/hf-logo-with-title.png?download=true",
       "asset": "assets/logos/hugging-face-lockup.png",
       "sha256": "54989c3f08a04f1d91d4cf806e45b1233752114daed6f73574dfb5792576e7f0",
+      "fallback_status": "none"
+    },
+    {
+      "name": "NVIDIA",
+      "aliases": [
+        "NVIDIA",
+        "Nvidia",
+        "英伟达"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/nvidia.svg",
+      "asset": "assets/logos/nvidia.png",
+      "sha256": "2f2e48dd6f62f5ae0908d48c5dd2d9be925db153c20e17248c34a42ce119bca3",
+      "fallback_status": "none"
+    },
+    {
+      "name": "AMD",
+      "aliases": [
+        "AMD"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/amd.svg",
+      "asset": "assets/logos/amd.png",
+      "sha256": "ea670952782fd03272f4cc8a219223862fab8cc774fa751398c2644c1095a619",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Intel",
+      "aliases": [
+        "Intel",
+        "英特尔"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/intel.svg",
+      "asset": "assets/logos/intel.png",
+      "sha256": "c38a90c31586ed29adf19c19e0c9012fb690d714d8f2953f25457db46cce66bc",
+      "fallback_status": "none"
+    },
+    {
+      "name": "TSMC",
+      "aliases": [
+        "TSMC",
+        "台积电",
+        "台湾积体电路"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/tsmc.svg",
+      "asset": "assets/logos/tsmc.png",
+      "sha256": "eaaf995c88ffe17db6c72b635110d11b5b7d1d7e3a6d4c60a9efddc778cfdc60",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Qualcomm",
+      "aliases": [
+        "Qualcomm",
+        "高通"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/qualcomm.svg",
+      "asset": "assets/logos/qualcomm.png",
+      "sha256": "616fb64bf64e017b02aee0945d1ad8bf8bfa8c170b796ad30faea6a9eda88f48",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Huawei",
+      "aliases": [
+        "Huawei",
+        "华为",
+        "华为昇腾",
+        "昇腾",
+        "Ascend"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/huawei.svg",
+      "asset": "assets/logos/huawei-ascend.png",
+      "sha256": "3055998a7ca3b92fce7abf490826ec983f5013b8120965eda9ec87b6b723420b",
+      "fallback_status": "none"
+    },
+    {
+      "name": "GitHub",
+      "aliases": [
+        "GitHub",
+        "Github"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/github.svg",
+      "asset": "assets/logos/github.png",
+      "sha256": "4476621ae4cdffa06e90669f46d15b3cab9922af353b5ff2d5bb00a6dc1e9bbf",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Perplexity",
+      "aliases": [
+        "Perplexity"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/perplexity.svg",
+      "asset": "assets/logos/perplexity.png",
+      "sha256": "3af99f57877e404309a5d02dd09db1b68a8c89d27a2e0d6e68e8450d1ffadebf",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Cursor",
+      "aliases": [
+        "Cursor",
+        "Anysphere"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/cursor.svg",
+      "asset": "assets/logos/cursor.png",
+      "sha256": "0dfa4e4845139da44192e6662af4937e984920d918e761c765abdaee0674a5de",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Midjourney",
+      "aliases": [
+        "Midjourney"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/midjourney.svg",
+      "asset": "assets/logos/midjourney.png",
+      "sha256": "3bb013376fb5158052bd9c77ff8f9d79b36f620bc39f691d871653ad9556f848",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Stability AI",
+      "aliases": [
+        "Stability AI",
+        "StabilityAI",
+        "Stability"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/stability-ai.svg",
+      "asset": "assets/logos/stability-ai.png",
+      "sha256": "a137ab7935ddabdead4d59ef5b7d0fc0ab4f8dc19979d8ea2c7122841230d28f",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Microsoft",
+      "aliases": [
+        "Microsoft",
+        "微软"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/microsoft.svg",
+      "asset": "assets/logos/microsoft.png",
+      "sha256": "86cd81ea81bbc306a36126fcf5eb31128e2156067f342783868d2940eec81a28",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Google",
+      "aliases": [
+        "Google",
+        "谷歌",
+        "Alphabet"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/google.svg",
+      "asset": "assets/logos/google.png",
+      "sha256": "f2903491ec460f0a9eb18df51e7bb6fa2e877fd8bc0f7922c22235c4fa865a1b",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Apple",
+      "aliases": [
+        "Apple",
+        "苹果"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/apple.svg",
+      "asset": "assets/logos/apple.png",
+      "sha256": "016c76d68c0a4f14da44dd31eaabbe29e48365477ef128d3b5818c3fbe70ea81",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Meta",
+      "aliases": [
+        "Meta",
+        "Facebook",
+        "脸书"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/meta.svg",
+      "asset": "assets/logos/meta.png",
+      "sha256": "be22822431b0841f217ea7fc48546ae0b60c0fa76a3d6903edfb7012d4e9ba10",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Meta AI",
+      "aliases": [
+        "Meta AI",
+        "Llama"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/meta.svg",
+      "asset": "assets/logos/meta-ai.png",
+      "sha256": "be22822431b0841f217ea7fc48546ae0b60c0fa76a3d6903edfb7012d4e9ba10",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Spotify",
+      "aliases": [
+        "Spotify"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/spotify.svg",
+      "asset": "assets/logos/spotify.png",
+      "sha256": "f7b4d5bfb7799ea62407aa9311b123caf5f57ec39b4cb7e43664e5179ff029fe",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Mistral AI",
+      "aliases": [
+        "Mistral AI",
+        "Mistral"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/mistral-ai.svg",
+      "asset": "assets/logos/mistral-ai.png",
+      "sha256": "03306e1e75c9674ee8c813c2f771d0b25d651c1c76ecee150cb8c42bd034df0a",
+      "fallback_status": "none"
+    },
+    {
+      "name": "DeepSeek",
+      "aliases": [
+        "DeepSeek",
+        "深度求索"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/deepseek.svg",
+      "asset": "assets/logos/deepseek.png",
+      "sha256": "3ca0782d49a7f7ebd614096c51024dc14b0383301988e3969bfadcd34824c183",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Moonshot AI",
+      "aliases": [
+        "Moonshot AI",
+        "月之暗面",
+        "Kimi"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/moonshot-ai.svg",
+      "asset": "assets/logos/moonshot-kimi.png",
+      "sha256": "57bc205f838238ce2e235cb443ab0d58428c0ef74bb75c5608863fc9f9330a0e",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Alibaba Qwen",
+      "aliases": [
+        "通义千问",
+        "Qwen",
+        "通义",
+        "阿里巴巴",
+        "Alibaba"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/qwen.svg",
+      "asset": "assets/logos/alibaba-qwen.png",
+      "sha256": "4bab26538ab771e4a4964d717f0fc1223150e6bafbd1401d5049bc08169f0b6e",
+      "fallback_status": "none"
+    },
+    {
+      "name": "xAI",
+      "aliases": [
+        "xAI",
+        "Grok"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/x-ai.svg",
+      "asset": "assets/logos/xai.png",
+      "sha256": "7caa9297d617d334723710c2c5eb85336e1c37b6c1ddcdb7bdb4e9095955c940",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Google DeepMind",
+      "aliases": [
+        "DeepMind",
+        "谷歌DeepMind"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/deepmind.svg",
+      "asset": "assets/logos/google-deepmind.png",
+      "sha256": "0fff75d2bc7f0bf8edf10356077666492a952deaff722948d252d99bb34e65b2",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Tesla",
+      "aliases": [
+        "Tesla",
+        "特斯拉"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/tesla.svg",
+      "asset": "assets/logos/tesla.png",
+      "sha256": "0b5d43c02b60af7153b081ed1b3e6e63575aef89e0310f4817aedf9b2b0f4804",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Baidu",
+      "aliases": [
+        "Baidu",
+        "百度"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/baidu.svg",
+      "asset": "assets/logos/baidu.png",
+      "sha256": "02c51c3a9d83412082d35586bd4f04a1ebb03150f3cd6f0439d06930e961187f",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Baidu ERNIE",
+      "aliases": [
+        "文心一言",
+        "文心",
+        "ERNIE"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/baidu.svg",
+      "asset": "assets/logos/baidu-ernie.png",
+      "sha256": "02c51c3a9d83412082d35586bd4f04a1ebb03150f3cd6f0439d06930e961187f",
+      "fallback_status": "none"
+    },
+    {
+      "name": "ByteDance",
+      "aliases": [
+        "ByteDance",
+        "字节跳动",
+        "字节"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/bytedance.svg",
+      "asset": "assets/logos/bytedance.png",
+      "sha256": "d4b75e64d4684da44d51cd43f7bd409baeedc5eb0b6edfabf5a1b32353846d17",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Doubao",
+      "aliases": [
+        "豆包",
+        "Doubao",
+        "豆包大模型"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/bytedance.svg",
+      "asset": "assets/logos/bytedance-doubao.png",
+      "sha256": "d4b75e64d4684da44d51cd43f7bd409baeedc5eb0b6edfabf5a1b32353846d17",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Alibaba",
+      "aliases": [
+        "阿里巴巴",
+        "阿里"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/alibabadotcom.svg",
+      "asset": "assets/logos/alibaba.png",
+      "sha256": "121cdd1a023d2b7e6d356efe4b89899e5465af49c6a0f21a9c9285c0b4bad6d2",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Tencent",
+      "aliases": [
+        "Tencent",
+        "腾讯"
+      ],
+      "source_page_url": "https://worldvectorlogo.com",
+      "source_asset_url": "https://cdn.worldvectorlogo.com/logos/tencent.svg",
+      "asset": "assets/logos/tencent.png",
+      "sha256": "aa170be8923600e807cfaad21cb1a3dff308f2e49c32b6e694d6d284cce68ecd",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Tencent Hunyuan",
+      "aliases": [
+        "腾讯混元",
+        "混元",
+        "Hunyuan"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/tencenthy.svg",
+      "asset": "assets/logos/tencent-hunyuan.png",
+      "sha256": "09803f65d53427f14d4ec5a16e9368eadabf15b736e1ce5ac054a3383a12085d",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Zhipu AI",
+      "aliases": [
+        "智谱",
+        "智谱AI",
+        "智谱清言",
+        "Z.ai",
+        "GLM",
+        "清言"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": "https://upload.wikimedia.org/wikipedia/commons/f/f4/Z.ai_%28company_logo%29.svg",
+      "asset": "assets/logos/zhipu-glm.png",
+      "sha256": "34b0ee078e5a80055d11e0fc9de4bc818c0fdf976ac3d5cb657c43d9e4692160",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Amazon",
+      "aliases": [
+        "Amazon",
+        "亚马逊",
+        "AWS"
+      ],
+      "source_page_url": "https://worldvectorlogo.com",
+      "source_asset_url": "https://cdn.worldvectorlogo.com/logos/amazon-com.svg",
+      "asset": "assets/logos/amazon.png",
+      "sha256": "90eaf00ef7f687ce726295666fc380726419a55814af831d954e129efc225e49",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Universal Music Group",
+      "aliases": [
+        "Universal Music Group",
+        "Universal Music",
+        "环球音乐",
+        "UMG"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": "https://upload.wikimedia.org/wikipedia/commons/c/c4/Universal_Music_Group_logo.svg",
+      "asset": "assets/logos/universal-music.png",
+      "sha256": "2f59b0c5e18c0f9a671bfede14e7949e69f274de7e4717916e8792d3f35c8e62",
       "fallback_status": "none"
     }
   ],
