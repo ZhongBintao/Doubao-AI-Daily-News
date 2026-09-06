@@ -28,6 +28,16 @@ if [ ! -x "$PY" ]; then
   info "创建 Python 虚拟环境（一次性，约 2-4 分钟）..."
   command -v python3 >/dev/null 2>&1 || die "找不到 python3"
   (cd "$PROJECT_DIR/OpenMontage" && python3 -m venv .venv) || die "venv 创建失败"
+else
+  # Venv exists but may be corrupted after a cloud-computer reset that
+  # partially wiped .local.  Verify it can actually run Python; if not,
+  # rebuild it transparently.
+  if ! "$PY" -c "import sys; sys.exit(0)" 2>/dev/null; then
+    warn "虚拟环境已损坏，正在重建..."
+    rm -rf "$PROJECT_DIR/OpenMontage/.venv"
+    command -v python3 >/dev/null 2>&1 || die "找不到 python3"
+    (cd "$PROJECT_DIR/OpenMontage" && python3 -m venv .venv) || die "venv 重建失败"
+  fi
 fi
 info "安装/更新 Python 依赖..."
 "$PY" -m pip install -q --upgrade pip 2>/dev/null || warn "pip 升级失败，继续"
@@ -123,6 +133,29 @@ if [ -d "$USER_SKILLS" ]; then
   fi
 else
   warn "未找到 .user_skills 目录，跳过 skill 同步：$USER_SKILLS"
+fi
+
+# --- 6b. 语音克隆参考音频检查 ----------------------------------------------
+# example-audio.mp3 随仓库分发，是语音克隆的音色参考。云电脑重置后
+# git pull 即可恢复。如果缺失则警告（不阻断，因为 text-to-audio 模式
+# 仍可作为备选）。
+REF_AUDIO="$PROJECT_DIR/example-audio.mp3"
+if [ -f "$REF_AUDIO" ]; then
+  REF_SIZE=$(stat -c%s "$REF_AUDIO" 2>/dev/null || stat -f%z "$REF_AUDIO" 2>/dev/null || echo 0)
+  info "参考音频: example-audio.mp3 ($((REF_SIZE / 1024)) KB)"
+else
+  warn "参考音频 example-audio.mp3 缺失，语音克隆将不可用（git pull 可恢复）"
+fi
+
+# --- 6c. 磁盘空间检查 -------------------------------------------------------
+# 视频渲染需要约 500MB-1GB 临时空间。低于 500MB 时警告。
+if command -v df >/dev/null 2>&1; then
+  FREE_KB=$(df -P "$PROJECT_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [ -n "${FREE_KB:-}" ] && [ "$FREE_KB" -lt 512000 ] 2>/dev/null; then
+    warn "磁盘剩余空间不足: $((FREE_KB / 1024)) MB（视频渲染可能失败）"
+  else
+    info "磁盘空间: $((FREE_KB / 1024)) MB 可用"
+  fi
 fi
 
 # --- 7. 终检 --------------------------------------------------------------

@@ -1,14 +1,14 @@
 ---
 name: ai-daily-news-studio
-description: 每日自动生成 AI 每日早报视频（1920×1080 MP4，含人声、背景音乐、字幕、封面）。触发词：AI 每日早报、AI早报、生成早报、每日新闻视频、今天的早报。豆包驱动，零 API 密钥，自动检查并安装环境。
+description: 每日自动生成 AI 每日早报视频（1920×1080 MP4，含语音克隆人声、背景音乐、字幕、3种尺寸封面、发布文案）。触发词：AI 每日早报、AI早报、生成早报、每日新闻视频、今天的早报。云电脑原生，单入口编排，自动断点续跑，语音克隆音色。
 metadata:
   author: ZhongBintao
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
-# AI 每日早报 · 豆包自动化
+# AI 每日早报 · 云电脑原生自动化
 
-从 AIHOT 精选 24 小时资讯，由豆包完成写稿、语音合成、封面生成，OpenMontage 渲染视频。零 API 密钥，全部使用豆包产品内功能。
+从 AIHOT 精选 24 小时资讯，由豆包完成写稿、语音克隆合成、封面生成，OpenMontage 渲染视频。单入口编排器自动调度全流程，断点续跑，适合云电脑定时无人值守运行。
 
 ## 使用方式
 
@@ -24,105 +24,156 @@ metadata:
 
 GitHub 仓库：`https://github.com/ZhongBintao/Doubao-AI-Daily-News`
 
-## 第一步：环境检查与自动安装
+## 快速运行（推荐）
 
-云电脑运行一段时间后会被重置，**每次触发都必须重跑自检**，不要假设环境还在。
-自检是幂等的：已具备的依赖跳过，缺失的自动补装到项目内 `.local/`，全程不需要 root。
+### 第 0 步：环境准备（每次运行前，约 10 秒；重置后首次约 3-8 分钟）
 
 ```bash
 PROJECT_DIR="/home/user/.super_doubao/super-doubao-runtime/workspace/ai-daily-news-studio-codex-plugin"
 
-# 1. 项目目录：不存在则克隆，已存在则拉最新代码
+# 项目目录：不存在则克隆，已存在则拉最新代码
 if [ ! -d "$PROJECT_DIR/.git" ]; then
   git clone https://github.com/ZhongBintao/Doubao-AI-Daily-News.git "$PROJECT_DIR"
 fi
 cd "$PROJECT_DIR"
 git pull --ff-only || echo "拉取最新代码失败，继续使用本地版本"
 
-# 2. 环境自检：Python venv + Node >= 22 + ffmpeg/ffprobe + .env
+# 幂等环境自检（venv / Node>=22 / ffmpeg / .env / 参考音频 / 磁盘空间）
 bash scripts/bootstrap_env.sh || exit 1
 
-# 3. 注入 PATH（ffmpeg/node 装在项目内，不注入则子进程找不到）
+# 注入 PATH（ffmpeg/node 装在项目内，不注入则子进程找不到）
 source .local/env.sh
 ```
 
-自检脚本自动完成：创建虚拟环境并装依赖、按需下载 Node.js 22 LTS 与静态
-ffmpeg/ffprobe（官方源失败时自动回退国内镜像）、从 `.env.example` 生成 `.env`。
+输出 `BOOTSTRAP_OK` 后继续。
 
-**两个易错点**：
-- 不要执行 `npm install -g hyperframes`。渲染走 `npx hyperframes`，CLI 首次渲染时自动拉取；
-  全局安装在无 root 环境反而会失败。
-- 后续**每一条** pipeline 命令前都要有 `source .local/env.sh`，否则 ffmpeg 不在 PATH 上，
-  会在混音阶段报 `ffmpeg not found`。
+### 第 1 步：运行编排器
 
-输出 `BOOTSTRAP_OK` 后，进入日常运行流程。
+```bash
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date $(date +%Y-%m-%d)
+```
 
-## 固定配置（不需要用户每次说明）
+编排器自动执行 9 个阶段，遇到需要 Agent（LLM）完成的阶段时打印交接指令并退出。
+你（Agent）完成交接工作后，**重新运行同一命令**即可自动从断点继续。
+
+### 三个 Agent 交接点
+
+全流程只有 3 个需要你（Agent）动手的阶段，其余全部自动：
+
+#### 交接点 1：编辑写稿（editorial）
+
+编排器生成 `outputs/YYYY-MM-DD/artifacts/editorial_task.json`（包含冻结资讯、写稿请求、草稿、校验标准）。
+
+你需要：
+1. 读取 `editorial_task.json`
+2. 按 v5 规范写入 `outputs/YYYY-MM-DD/artifacts/editorial_plan.json`
+3. 运行任务文件中的校验命令，确保 `editorial_quality_report.json` 的 `status = pass`
+4. 重新运行编排器
+
+#### 交接点 2：语音克隆合成（voice_clone）
+
+编排器生成 `outputs/YYYY-MM-DD/artifacts/tts_manifest.json`（包含每段的 spoken_text 和保存路径）。
+
+你需要：
+1. 读取 `tts_manifest.json`
+2. 对每一段调用 `audio_to_audio_plus`：
+   - `@音频1` = 项目根目录的 `example-audio.mp3`（语音克隆参考）
+   - prompt：`"用参考音频的音色、语速和朗读风格，清晰朗读以下文字，不增删字词，无背景音无杂音：{spoken_text}"`
+3. 将返回的音频保存到清单中指定的 `output_path`
+4. 全部完成后重新运行编排器
+
+**注意**：必须严格使用 spoken_text 原文，不增删字词；每段单独合成。
+
+#### 交接点 3：封面生成（cover）
+
+编排器生成 `outputs/YYYY-MM-DD/release-kit/covers/cover_task.json`（包含三种尺寸的 prompt 和参考图路径）。
+
+你需要：
+1. 读取 `cover_task.json`
+2. 使用 `image_edit` 工具（不是 image_gen），参考 `cover-style-system-16x9.png`
+3. 按顺序生成 16:9 (1920×1080) → 3:4 (1080×1440) → 9:16 (1080×1920)
+4. 保存到 `outputs/YYYY-MM-DD/release-kit/covers/` 下对应文件名
+5. 重新运行编排器
+
+### 完成
+
+编排器执行完所有阶段后，打印最终产出汇总。
+
+## 固定配置
 
 | 项目 | 配置 |
 |------|------|
-| TTS | 豆包对话内语音合成（`text_to_audio_plus`），活泼快语速女声 |
-| 音色描述 | 年轻女性，声音活泼甜美，充满活力，像晨间电台元气女主播，语速偏快，咬字清晰有节奏感，情绪明亮有感染力，无背景音无杂音，纯人声 |
+| TTS | 豆包语音克隆（`audio_to_audio_plus` + `example-audio.mp3`） |
+| 参考音频 | 项目根目录 `example-audio.mp3`（29.8秒，随仓库分发） |
 | 字幕 | 比例估算（豆包 TTS 无字级时间戳），文字 100% 来自写稿文案 |
-| 封面 | Seedream `image_edit` + 双参考图（理想效果图 + 风格系统图）+ 中文防护罩 prompt，文字准确性校验重试 1 次 |
+| 封面 | `image_edit` + 风格系统参考图，三种尺寸（16:9 / 3:4 / 9:16） |
 | 截图 | 关闭（`--source-visual-mode off`），视频统一用资讯卡片 |
 | API 密钥 | 不需要，全部使用豆包产品内功能 |
 | 视频规格 | 1920×1080 MP4，含人声 + 背景音乐 + 字幕 |
+| 编排器 | `ai_morning_brief.daily`，单入口，自动断点续跑 |
 
 ## 默认交付物（每次都要，不要询问用户是否需要）
 
 1. **视频** — `outputs/YYYY-MM-DD/renders/ai-daily-news-YYYY-MM-DD.mp4`（1920×1080）
 2. **封面** — 16:9 / 3:4 / 9:16 三张，位于 `release-kit/covers/`
-3. **发布文案整合包** — `outputs/YYYY-MM-DD/release-kit/`，
-   标题固定 `AI每日早报YYYY-MM-DD`，文案基于冻结素材撰写
+3. **发布文案整合包** — `outputs/YYYY-MM-DD/release-kit/`，标题固定 `AI每日早报YYYY-MM-DD`
 
-三者都是默认交付物，用户没提也要做。某项缺失必须在完成通知里写明原因，不能含糊带过。
+三者都是默认交付物，用户没提也要做。某项缺失必须在完成通知里写明原因。
 
-## 日常运行流程（8 步）
+## 编排器命令参考
 
-详细操作见项目内 `豆包运行手册.md`。简要流程：
+```bash
+# 完整运行（自动断点续跑）
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date YYYY-MM-DD
 
-1. **环境确认**（已在上方完成）
-2. **冻结素材**：`pipeline prepare --source-visual-mode off`，从 AIHOT 抓取 24h 精选资讯，选中 6-8 条
-3. **编辑写稿**（豆包完成）：读取 editorial_input.json，按 v5 规范生成 editorial_plan.json，通过质量校验
-4. **生成旁白脚本**：基于 editorial_plan 生成 narration_plan.json
-5. **豆包 TTS 合成**（豆包完成）：
-   - `doubao_tts_adapter prepare` 生成待合成清单
-   - 逐段调用 `text_to_audio_plus`，使用上方固定音色描述
-   - `doubao_tts_adapter finalize` 归一化音频、自动填充短时长、生成 manifest
-6. **视频渲染**：`pipeline run --reuse-audio --speech-provider doubao`，自动完成字幕估算、混音、HyperFrames 渲染、质量门禁
-7. **封面生成**（默认）：按 `skills/ai-brief-cover-generator-doubao/SKILL.md` 执行，用 `image_edit` 生成 16:9/3:4/9:16 三种封面
-8. **发布文案整合包**（默认）：按 `skills/ai-brief-release-kit/SKILL.md` 执行，
-   `release_workflow.py prepare` 冻结文案 → `finalize` 把视频、封面、文案组装成发布包
+# 查看当前进度（不执行）
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date YYYY-MM-DD --status
 
-完成后按「默认交付物」三项汇总告知用户：视频（路径/时长/大小）、三张封面、发布文案包。
+# 强制从头重跑
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date YYYY-MM-DD --force
 
-## 关键文件路径
+# 跳过封面和发布（只出视频）
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date YYYY-MM-DD --skip cover,release
 
-| 文件 | 路径 |
-|------|------|
-| 运行手册 | `项目/豆包运行手册.md` |
-| 语音规范 | `项目/skills/ai-brief-doubao-voice/SKILL.md` |
-| 封面规范 | `项目/skills/ai-brief-cover-generator-doubao/SKILL.md` |
-| 发布规范 | `项目/skills/ai-brief-release-kit/SKILL.md` |
-| 发布计划 | `项目/outputs/YYYY-MM-DD/release-kit/release_plan.json` |
-| 发布整合包 | `项目/outputs/YYYY-MM-DD/release-kit/` |
-| TTS 适配器 | `项目/ai_morning_brief/doubao_tts_adapter.py` |
-| 每日产出 | `项目/outputs/YYYY-MM-DD/` |
-| 最终视频 | `项目/outputs/YYYY-MM-DD/renders/ai-daily-news-YYYY-MM-DD.mp4` |
+# 从渲染阶段重跑（音频已生成）
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date YYYY-MM-DD --from render
+```
 
 ## 失败处理
 
-- 选中资讯不足 3 条 → 终止，告知用户今日素材不足
-- 写稿校验 2 次仍失败 → 终止，保存错误供人工排查
-- 某段 TTS 合成失败 → 重试 1 次，仍失败则终止
-- 视频渲染失败 → 查看 run_report.json 的 failed_stage，音频已生成可用 `--reuse-audio` 重跑
-- 封面生成失败 → 不影响主视频，记录后跳过
+| 失败阶段 | 处理方式 |
+|---------|---------|
+| 素材不足 3 条 | 终止，告知用户今日 AIHOT 素材不足 |
+| 写稿校验 2 次仍失败 | 终止，保存错误供人工排查 |
+| 某段语音合成失败 | 重试 1 次，仍失败则记录；编排器检测到缺失会停在 voice_clone 阶段 |
+| 视频渲染失败 | 查看 `run_report.json` 的 `failed_stage`，修复后重新运行编排器（音频已生成会自动复用） |
+| 封面生成失败 | 不影响主视频，记录后跳过（发布包会在无封面时降级） |
 
-任何阶段失败都不删除已生成的中间产物，可用于补跑。
+任何阶段失败都不删除已生成的中间产物，可用于补跑。编排器的 `run_state.json` 记录了每个阶段的状态和错误。
 
 ## 补跑
 
 用户说"补跑 YYYY-MM-DD 的早报"时：
 - 当天已成功 → 询问是否 `--force` 重新生成
-- 部分产物存在 → 从失败阶段继续，音频已生成用 `--reuse-audio`，素材已冻结用 `--reuse-source`
+- 部分产物存在 → 直接运行编排器，自动从断点继续
+- 音频已生成但渲染失败 → 编排器自动复用音频，从 render 阶段继续
+- 素材已冻结 → 编排器自动复用源数据
+
+## 关键文件路径
+
+| 文件 | 路径 |
+|------|------|
+| 编排器入口 | `python -m ai_morning_brief.daily` |
+| 运行状态 | `outputs/YYYY-MM-DD/run_state.json` |
+| 运行手册 | `项目/豆包运行手册.md` |
+| 语音规范 | `项目/skills/ai-brief-doubao-voice/SKILL.md` |
+| 封面规范 | `项目/skills/ai-brief-cover-generator-doubao/SKILL.md` |
+| 发布规范 | `项目/skills/ai-brief-release-kit/SKILL.md` |
+| TTS 适配器 | `项目/ai_morning_brief/doubao_tts_adapter.py` |
+| 参考音频 | `项目/example-audio.mp3` |
+| 最终视频 | `outputs/YYYY-MM-DD/renders/ai-daily-news-YYYY-MM-DD.mp4` |
+| 每日产出 | `outputs/YYYY-MM-DD/` |
+
+## 手动分步模式（调试用）
+
+如果编排器出现问题需要手动调试，原 8 步手动流程仍然可用，详见 `豆包运行手册.md` 的"手动分步运行"附录。手动模式下 TTS 使用 `doubao_tts_adapter.py` 的 prepare/status/finalize 三个子命令。
