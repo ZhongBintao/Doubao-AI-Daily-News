@@ -307,7 +307,7 @@ def run_editorial_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
                 f"d='{run_dir.name}'; ad=Path('outputs')/d/'artifacts'; "
                 "plan=load_editorial_plan(ad/'editorial_plan.json'); "
                 "ei=json.loads((ad/'editorial_input.json').read_text(encoding='utf-8')); "
-                "si={i['item_id']:SourceItem.from_mapping(i) for i in ei.get('items',[])}; "
+                "si={i['id']:SourceItem.from_mapping(i) for i in ei.get('items',[])}; "
                 "r=build_editorial_quality_report(plan,ei,si); "
                 "json.dump(r,(ad/'editorial_quality_report.json').open('w',encoding='utf-8'),ensure_ascii=False,indent=2); "
                 "print('Status:',r.get('status')); "
@@ -344,7 +344,8 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
     import json as _json
     from datetime import date as _date
 
-    from .editorial import finalize_editorial_plan, load_editorial_plan
+    from .editorial import load_editorial_plan
+    from .writing import finalize_editorial_plan
     from .models import SourceItem
     from .script import build_script_from_editorial_plan, validate_script
     from .doubao_tts_adapter import generate_tts_manifest
@@ -358,17 +359,25 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
     write_json(artifacts_dir / "editorial_plan_final.json", plan)
 
     # 2. Build selection object (lightweight shim matching the pipeline's shape).
-    source_items = {item["item_id"]: SourceItem.from_mapping(item) for item in editorial_input.get("items", [])}
+    source_items = {item["id"]: SourceItem.from_mapping(item) for item in editorial_input.get("items", [])}
     selection_items = tuple(source_items[item_id] for item_id in editorial_input["selection"]["item_ids"] if item_id in source_items)
 
     class _Selection:
+        """Lightweight shim matching ai_morning_brief.models.SelectionResult.
+
+        Field names must mirror the serialized editorial_input: the JSON uses
+        `mode` (not `status`) and each item is keyed by `id` (not `item_id`).
+        """
+
         def __init__(self) -> None:
             self.items = selection_items
-            self.mode = editorial_input["selection"]["status"]
+            self.mode = editorial_input["selection"]["mode"]
             self.category_counts = editorial_input["selection"].get("category_counts", {})
             self.reason = editorial_input["selection"].get("reason", "")
             self.eligible_count = editorial_input["selection"].get("eligible_count", 0)
             self.selection_metadata: dict[str, Any] = {}
+            # SelectionResult declares `policy`; downstream code may read it.
+            self.policy = dict(editorial_input["selection"].get("policy") or {})
 
     # 3. Build narration script.
     script = build_script_from_editorial_plan(
@@ -504,8 +513,15 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     expected = ["16x9.png", "3x4.png", "9x16.png"]
     existing = [f for f in expected if (covers_dir / f).is_file() and (covers_dir / f).stat().st_size > 0]
     if len(existing) == 3:
+        # release_workflow requires a schema-5 cover manifest (status
+        # complete_unreviewed, per-result generated_file).  The cover handoff
+        # only produces the three PNGs, so without this step every fresh run
+        # stalls at release until the manifest is authored by hand (observed
+        # on the cloud computer 2026-09-06).
+        _ensure_cover_manifest(covers_dir)
         _set_stage(state, "cover", status="done", finished_at=_now().isoformat(),
-                    artifacts={"covers": [str(covers_dir / f) for f in expected]})
+                    artifacts={"covers": [str(covers_dir / f) for f in expected],
+                               "cover_manifest": str(covers_dir / "cover_manifest.json")})
         return False
 
     # Try to generate cover_request.json via cover_workflow.py prepare.
@@ -519,7 +535,7 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
         ei = _read_json(editorial_input_path) or {}
         items = ei.get("items", [])
         first_item = items[0] if items else {}
-        item_id = str(first_item.get("item_id", ""))
+        item_id = str(first_item.get("id", ""))
         headline = str(first_item.get("title", "AI 每日早报"))[:80]
         subheadline = str(first_item.get("summary", ""))[:120]
         visual_brief = f"基于资讯: {headline}"
@@ -578,6 +594,36 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     return True
 
 
+def _ensure_cover_manifest(covers_dir: Path) -> None:
+    """Create covers/cover_manifest.json via cover_workflow record when missing.
+
+    The release stage always passes --cover-manifest, and release_workflow
+    expects a schema-5 manifest even when covers are intentionally absent.
+    The cover handoff itself only produces the three PNGs, so generate the
+    manifest here.  Failures are non-fatal: run_release falls back to a
+    no-cover package.
+    """
+    manifest = covers_dir / "cover_manifest.json"
+    if manifest.is_file() and manifest.stat().st_size > 0:
+        return
+    cover_script = REPO_ROOT / "skills" / "ai-brief-cover-generator" / "scripts" / "cover_workflow.py"
+    request = covers_dir / "cover_request.json"
+    if not (cover_script.is_file() and request.is_file()):
+        print("  [WARN] cannot build cover manifest: cover_workflow.py or cover_request.json missing", file=sys.stderr)
+        return
+    cmd = [
+        sys.executable, str(cover_script), "record",
+        "--request", str(request),
+        "--image", f"16:9={covers_dir / '16x9.png'}",
+        "--image", f"3:4={covers_dir / '3x4.png'}",
+        "--image", f"9:16={covers_dir / '9x16.png'}",
+        "--force",
+    ]
+    result = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60, check=False)
+    if result.returncode != 0:
+        print(f"  [WARN] cover_workflow record failed: {(result.stderr or '')[-300:]}", file=sys.stderr)
+
+
 def _extract_prompt(ratios: Any, key: str) -> str:
     """Extract the seedream_prompt from a cover request ratios structure."""
     if not isinstance(ratios, Mapping):
@@ -618,7 +664,7 @@ def run_release(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
             if title:
                 desc_parts.append(title)
         description = "；".join(desc_parts) if desc_parts else f"AI每日早报{run_date.isoformat()}"
-        primary_item_id = str(items[0].get("item_id", "")) if items else ""
+        primary_item_id = str(items[0].get("id", "")) if items else ""
 
         cmd = [
             sys.executable, str(release_script), "prepare",

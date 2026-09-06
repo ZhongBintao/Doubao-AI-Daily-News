@@ -86,6 +86,19 @@ EOF
   tar -xJf "/tmp/$TARBALL" -C "$NODE_DIR" --strip-components=1 || die "Node.js 解压失败"
 fi
 
+# --- 2b. hyperframes CLI（渲染必需，必须本地常驻）-------------------------
+# 实测（豆包云电脑 2026-09-06）：HyperFramesCompose 的 runtime check 只有 20 秒超时，
+# 依赖 npx 首次拉取必然超时导致 render 阶段失败。预装一次即可常驻。
+if command -v npm >/dev/null 2>&1 && ! command -v hyperframes >/dev/null 2>&1; then
+  info "预装 hyperframes CLI（一次性，约 1-2 分钟）..."
+  npm install -g hyperframes >/dev/null 2>&1 \
+    || npm install --prefix "$LOCAL_DIR/npm" hyperframes >/dev/null 2>&1 \
+    || warn "hyperframes 安装失败，渲染阶段可能超时"
+  if [ -d "$LOCAL_DIR/npm/node_modules/.bin" ]; then
+    export PATH="$LOCAL_DIR/npm/node_modules/.bin:$PATH"
+  fi
+fi
+
 # --- 3. ffmpeg + ffprobe（混音与质量门禁按 PATH 硬编码调用，必需）--------
 have_ff() { command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; }
 if ! have_ff; then
@@ -116,7 +129,7 @@ fi
 # --- 5. 生成 env.sh，供后续命令注入 PATH ---------------------------------
 cat > "$LOCAL_DIR/env.sh" <<EOF
 # 由 scripts/bootstrap_env.sh 生成，每次运行前 source 本文件
-export PATH="$BIN_DIR:$NODE_DIR/bin:\$PATH"
+export PATH="$BIN_DIR:$NODE_DIR/bin:$LOCAL_DIR/npm/node_modules/.bin:\$PATH"
 export PROJECT_DIR="$PROJECT_DIR"
 EOF
 

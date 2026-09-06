@@ -445,6 +445,40 @@ def build_script(selection: SelectionResult, *, run_date: date, show_name: str =
     }
 
 
+def _realign_spoken_to_units(
+    units: tuple[dict[str, Any], ...], segment_spoken: str
+) -> tuple[dict[str, Any], ...]:
+    """Redistribute the segment-level spoken text across caption units.
+
+    Normalizing each caption unit in isolation diverges from normalizing the
+    joined display text: unit boundaries add or drop leading/trailing spaces
+    and split numeric context (``1797`` + ``分``) normalizes differently once
+    joined.  TTS consumes the segment-level text, so the unit texts are
+    re-derived from it proportionally, keeping every downstream consumer on
+    one canonical string.
+    """
+    if not units or not segment_spoken:
+        return units
+    weights = [len(str(unit.get("spoken_text") or "")) for unit in units]
+    total = sum(weights)
+    if total <= 0:
+        weights = [1] * len(units)
+        total = len(units)
+    result: list[dict[str, Any]] = []
+    consumed = 0
+    scaled = 0
+    for index, (unit, weight) in enumerate(zip(units, weights)):
+        scaled += weight
+        if index == len(units) - 1:
+            piece = segment_spoken[consumed:]
+        else:
+            target = round(len(segment_spoken) * scaled / total)
+            piece = segment_spoken[consumed:target]
+            consumed = target
+        result.append({**unit, "spoken_text": piece})
+    return tuple(result)
+
+
 def build_script_from_editorial_plan(
     selection: SelectionResult,
     *,
@@ -515,9 +549,14 @@ def build_script_from_editorial_plan(
                     })
             caption_units = tuple(fallback_units)
         display_text = "".join(str(unit.get("display_text") or "") for unit in caption_units)
-        spoken_text = "".join(str(unit.get("spoken_text") or "") for unit in caption_units)
         narration_display_text = display_text or normalize_display_text(narration.get("display_text"))
-        narration_spoken_text = spoken_text or normalize_with_ledger(narration_display_text).spoken_text
+        # Joining per-unit normalized speech diverges from normalizing the joined
+        # display text (unit-boundary spaces, split numeric context such as
+        # "1797" + "分").  Derive the segment spoken text from the whole display
+        # text and re-align the caption units to it so that every consumer
+        # (TTS segments, subtitle caption units) observes one canonical string.
+        narration_spoken_text = normalize_with_ledger(narration_display_text).spoken_text
+        caption_units = _realign_spoken_to_units(caption_units, narration_spoken_text)
         cards = tuple(
             {**dict(card), **{
                 field: normalize_display_text(card.get(field))
@@ -571,6 +610,11 @@ def build_script_from_editorial_plan(
             )
         )
 
+    intro_text = (
+        f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。"
+        "欢迎收看AI早报。"
+    )
+    intro_spoken = normalize_with_ledger(intro_text).spoken_text
     intro = ScriptSegment(
         segment_id="intro",
         kind="intro",
@@ -578,23 +622,13 @@ def build_script_from_editorial_plan(
         category="开场",
         source_item_id=None,
         source_name=None,
-        broadcast_text=(
-            f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。"
-            "欢迎收看AI早报。"
-        ),
+        broadcast_text=intro_text,
         source_fragments=tuple(),
         screen_points=tuple(),
         layout_type="intro",
-        display_text=(
-            f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。"
-            "欢迎收看AI早报。"
-        ),
-        spoken_text=normalize_with_ledger(
-            f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。欢迎收看AI早报。"
-        ).spoken_text,
-        caption_units=_caption_units_for_text(
-            f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。欢迎收看AI早报。"
-        ),
+        display_text=intro_text,
+        spoken_text=intro_spoken,
+        caption_units=_realign_spoken_to_units(_caption_units_for_text(intro_text), intro_spoken),
     )
     if plan_version in {"5.0", "4.0"}:
         overview_items = [
