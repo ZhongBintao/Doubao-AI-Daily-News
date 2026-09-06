@@ -166,6 +166,42 @@ def extra_logo_entries(manifest_path: Path | None) -> list[dict[str, Any]]:
     return prepared
 
 
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3040-\u30ff]")
+_ALIAS_PATTERNS: dict[str, re.Pattern[str] | None] = {}
+
+
+def _alias_pattern(alias: str) -> re.Pattern[str] | None:
+    """Compiled matcher for one alias, or None when substring matching applies."""
+    if alias not in _ALIAS_PATTERNS:
+        folded = alias.casefold()
+        # 中文没有词间距，继续用子串匹配；英文加词边界，避免 Intel 命中 Intel-ligence
+        pattern = (
+            None
+            if _CJK_RE.search(folded)
+            else re.compile(r"\b" + re.escape(folded) + r"\b", re.ASCII)
+        )
+        _ALIAS_PATTERNS[alias] = pattern
+    return _ALIAS_PATTERNS[alias]
+
+
+def alias_in_line(line: str, alias: str) -> bool:
+    """Whether an already-casefolded text line contains the alias.
+
+    Latin aliases use ASCII word boundaries so that "Intel" does not match
+    inside "Apple Intelligence" and "Meta" does not match inside "metadata".
+    CJK aliases keep substring matching because Chinese has no word spacing.
+    re.ASCII is deliberate: it treats CJK characters as boundaries, so a
+    spaced-less headline like "英伟达NVIDIA" still matches NVIDIA.
+    """
+    folded = alias.casefold()
+    if not folded:
+        return False
+    pattern = _alias_pattern(alias)
+    if pattern is None:
+        return folded in line
+    return pattern.search(line) is not None
+
+
 def brand_matches(text: str, entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     lines = [line.casefold() for line in text.splitlines()] or [text.casefold()]
     matches: list[tuple[int, int, dict[str, Any]]] = []
@@ -176,7 +212,7 @@ def brand_matches(text: str, entries: Iterable[dict[str, Any]]) -> list[dict[str
         line_indexes = [
             line_index
             for line_index, line in enumerate(lines)
-            if any(alias and alias.casefold() in line for alias in aliases)
+            if any(alias and alias_in_line(line, alias) for alias in aliases)
         ]
         if key and key not in seen and line_indexes:
             matches.append((min(line_indexes), registry_index, dict(entry)))

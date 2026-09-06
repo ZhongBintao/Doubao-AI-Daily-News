@@ -503,6 +503,296 @@
       "asset": "assets/logos/universal-music.png",
       "sha256": "2f59b0c5e18c0f9a671bfede14e7949e69f274de7e4717916e8792d3f35c8e62",
       "fallback_status": "none"
+    },
+    {
+      "name": "Cohere",
+      "aliases": [
+        "Cohere"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/cohere.png",
+      "sha256": "7595f2e31536c94309f921cbe040241575252eb382c5f27294c0df3e14de5840",
+      "fallback_status": "none"
+    },
+    {
+      "name": "AI21 Labs",
+      "aliases": [
+        "AI21 Labs",
+        "AI21"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/ai21-labs.png",
+      "sha256": "b058910a3543491ae18edb048a22e7cf824e29fccc930fe46134d857499a5d2e",
+      "fallback_status": "none"
+    },
+    {
+      "name": "IBM",
+      "aliases": [
+        "IBM",
+        "IBM Research"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/ibm.svg.svg",
+      "asset": "assets/logos/ibm-research.png",
+      "sha256": "1ab50c6b4019063f77e8f1ee8b336159bb2f4a8471fe9236777a7f09046e2092",
+      "fallback_status": "none"
+    },
+    {
+      "name": "StepFun",
+      "aliases": [
+        "StepFun",
+        "阶跃星辰"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/stepfun.png",
+      "sha256": "aff9b8787a96155f33b5ec0940605c089167d7058de77a2913e2342e4c93bc03",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Xiaomi",
+      "aliases": [
+        "Xiaomi",
+        "小米"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/xiaomi.svg.svg",
+      "asset": "assets/logos/xiaomi-mimo.png",
+      "sha256": "d188327d580c4edfe86dc3453a9bbc5524dcd08a26c4ff7d739c0ab7d8d5257e",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Cerebras",
+      "aliases": [
+        "Cerebras"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/cerebras.png",
+      "sha256": "1b31a84e9746f729c8b1bd7a329f4394e8632311cbd98793c74fe2c5ef094daf",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Groq",
+      "aliases": [
+        "Groq"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/groq.png",
+      "sha256": "0d98bce23dd13d046c69f0fb66c7f7e6f77517440a7f8bd766f52a522d603d8b",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Scale AI",
+      "aliases": [
+        "Scale AI"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/scale-ai.png",
+      "sha256": "b7377c245158a6c18ee56cd6c2c2bbcfc7bc4850b4614c85958abe4df6af38ea",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Databricks",
+      "aliases": [
+        "Databricks"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/databricks.svg.svg",
+      "asset": "assets/logos/databricks.png",
+      "sha256": "d5ede00d57f6954ee7dbf1bd43004cca6d66c14fa1d64977c05a65a206823a50",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Ollama",
+      "aliases": [
+        "Ollama"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/ollama.svg.svg",
+      "asset": "assets/logos/ollama.png",
+      "sha256": "4e84564cf524d362f750aed9b11cbc2021e8fdac2150fef120fd552e878a9efc",
+      "fallback_status": "none"
+    },
+    {
+      "name": "LangChain",
+      "aliases": [
+        "LangChain",
+        "Langchain"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/langchain.svg.svg",
+      "asset": "assets/logos/langchain.png",
+      "sha256": "72de7cc08ca9b4f4801cc0686396fad77583aeec7d3be0d7bc9336977714d948",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Runway",
+      "aliases": [
+        "Runway ML",
+        "RunwayML",
+        "Runway"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/runway.png",
+      "sha256": "9ef55bcedcfc303d392693ba50b61fd80a9b42627a981a5c63f84dbfa37754a4",
+      "fallback_status": "none"
+    },
+    {
+      "name": "ElevenLabs",
+      "aliases": [
+        "ElevenLabs"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/elevenlabs.svg.svg",
+      "asset": "assets/logos/elevenlabs.png",
+      "sha256": "796d114d3098d45883fd5b6fb8e0f36cbab0464987bf9bb9ef3e9d71a3550670",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Suno",
+      "aliases": [
+        "Suno",
+        "Suno AI"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/suno.svg.svg",
+      "asset": "assets/logos/suno.png",
+      "sha256": "d4d33c4ead3b20d03c912e45f2e041a03710dca7addfdf30958c197c672124fb",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Replicate",
+      "aliases": [
+        "Replicate"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/replicate.svg.svg",
+      "asset": "assets/logos/replicate.png",
+      "sha256": "2cc8521a1ad5be1c30f76145c3603bef34b6eda3219ed2683a2d80f7ec5f14fa",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Samsung",
+      "aliases": [
+        "Samsung",
+        "三星"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/samsung.svg.svg",
+      "asset": "assets/logos/samsung.png",
+      "sha256": "baa00af67b4d309ddc96def54273d4f77befb8217aaffd4f75d7ca0b4fa08c99",
+      "fallback_status": "none"
+    },
+    {
+      "name": "BYD",
+      "aliases": [
+        "BYD",
+        "比亚迪"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/byd.png",
+      "sha256": "70eceacbe662b6a04809f1648805eaa6129e18132619140e21d9d427efe6b227",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Waymo",
+      "aliases": [
+        "Waymo"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/waymo.png",
+      "sha256": "7a3f9781d71e9090f7b8133a264b6ec914f155c31f856ba108597db4c3ca013c",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Figure AI",
+      "aliases": [
+        "Figure AI",
+        "Figure 02"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/figure-ai.png",
+      "sha256": "f9231b82c3b79cb88c3874d49d0a23ae0a4644dedd558e36b55f07adb72b3b79",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Boston Dynamics",
+      "aliases": [
+        "Boston Dynamics",
+        "波士顿动力"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/boston-dynamics.png",
+      "sha256": "3dad18bbd6d6c9f83b4c096b6b576116cdfad230e6b6fda1e11eaa135f5dfa7c",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Netflix",
+      "aliases": [
+        "Netflix",
+        "网飞"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/netflix.svg.svg",
+      "asset": "assets/logos/netflix.png",
+      "sha256": "2fc55721b1b8748fdb71f5e9ad17a9eb4b9dcaf09191f98c88dff44f64608006",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Adobe",
+      "aliases": [
+        "Adobe"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/adobe.svg.svg",
+      "asset": "assets/logos/adobe.png",
+      "sha256": "58868c15057b5ef2bf57e2aeecdc8c9eb1dd09c6cbe80599e3a580df836c5b2e",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Disney",
+      "aliases": [
+        "Disney",
+        "迪士尼",
+        "Walt Disney"
+      ],
+      "source_page_url": "https://commons.wikimedia.org",
+      "source_asset_url": null,
+      "asset": "assets/logos/disney.png",
+      "sha256": "0845945813df01a4250a91da3913751321c8c090c631c98706405aff095d73b0",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Stripe",
+      "aliases": [
+        "Stripe"
+      ],
+      "source_page_url": "https://github.com/gilbarbara/logos",
+      "source_asset_url": "https://raw.githubusercontent.com/gilbarbara/logos/main/logos/stripe.svg.svg",
+      "asset": "assets/logos/stripe.png",
+      "sha256": "4a2f24452a8f474b371d5e397bee71ae233096e4f784a9a6ceb52b4fa83969da",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Coinbase",
+      "aliases": [
+        "Coinbase"
+      ],
+      "source_page_url": "https://simpleicons.org",
+      "source_asset_url": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/coinbase.svg.svg",
+      "asset": "assets/logos/coinbase.png",
+      "sha256": "4f4a9451361151870a6229f5bdd3856dc69a3301df915f80271d8c36b5408ec2",
+      "fallback_status": "none"
     }
   ],
   "combined_reference": {
