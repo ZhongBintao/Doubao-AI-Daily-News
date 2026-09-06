@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.venv/
+.secrets/
+*.session
+*.session-journal
+data/
+outputs/
+OpenMontage/.venv/
+.local/
+__pycache__/
+*.py[cod]

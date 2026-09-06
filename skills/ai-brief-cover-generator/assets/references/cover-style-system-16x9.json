@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "role": "active_editorial_visual_system_reference",
+  "source": "user-provided reference in Codex conversation on 2026-09-01",
+  "asset": "cover-style-system-16x9.png",
+  "dimensions": [1920, 1080],
+  "sha256": "f5b0a0a3b09c20b3d8abcc09a4054145582d7abc9601725917ab9ea1caef5bdd",
+  "usage": "Learn only the editorial infographic language, hierarchy, palette, typography character, brand capsules, illustration texture, and information density. Ignore all embedded dates, copy, numbers, news facts, and brand lists."
+}

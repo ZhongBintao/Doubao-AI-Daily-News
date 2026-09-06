@@ -1,0 +1,7 @@
+interface:
+  display_name: "AI Daily News Studio Workflow"
+  short_description: "从 AIHOT 完成丰富多页视频、原生封面、发布文案与私有整合包"
+  brand_color: "#FF6B4A"
+  default_prompt: "Use $ai-daily-news-studio-workflow to build today's complete, source-grounded private AI每日早报 release package in one unattended run; when ratios are not specified, include 16:9, 3:4, and 9:16, and resume validated stages when possible."
+policy:
+  allow_implicit_invocation: true

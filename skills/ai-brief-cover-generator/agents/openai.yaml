@@ -1,0 +1,7 @@
+interface:
+  display_name: "AI早报原生完整封面"
+  short_description: "用 GPT Image 一次生成含文案、Logo 与插画的三比例完整封面"
+  brand_color: "#FF6B4A"
+  default_prompt: "Use $ai-brief-cover-generator to generate today's source-grounded 16:9, 3:4, and 9:16 complete covers in one unattended pass. Use the active editorial style reference and official brand identity references; let GPT Image generate all copy, Logos, illustration, and layout together, then record each first result without post-processing or visual review."
+policy:
+  allow_implicit_invocation: true

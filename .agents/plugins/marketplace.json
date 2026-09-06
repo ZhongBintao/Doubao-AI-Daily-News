@@ -1,0 +1,20 @@
+{
+  "name": "ai-daily-news-studio",
+  "interface": {
+    "displayName": "AI Daily News Studio"
+  },
+  "plugins": [
+    {
+      "name": "ai-daily-news-studio",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ai-daily-news-studio"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Creativity"
+    }
+  ]
+}

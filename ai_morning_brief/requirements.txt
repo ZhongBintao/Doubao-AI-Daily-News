@@ -1,0 +1,5 @@
+# Optional provider dependencies for the local video pipeline.
+# OpenMontage already supplies google-genai in its runtime; keep these pins
+# separate from the protected root/PDF requirements file.
+azure-cognitiveservices-speech>=1.40.0
+google-genai>=1.0.0

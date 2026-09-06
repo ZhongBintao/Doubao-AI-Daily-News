@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "policy": "Official company source first; verified text-only fallback when a reliable mark is unavailable; never synthesize an approximate brand symbol.",
+  "entries": [
+    {
+      "name": "Anthropic",
+      "aliases": ["Anthropic", "Claude"],
+      "source_page_url": "https://www.anthropic.com/press-kit",
+      "source_asset_url": "https://www.anthropic.com/favicon.ico",
+      "asset": "assets/logos/anthropic.png",
+      "sha256": "a3b857bc673849406939a1fdb2442d527f32323f93b745421360c112f57b278b",
+      "fallback_status": "official_icon_plus_plain_text"
+    },
+    {
+      "name": "Sony Music",
+      "aliases": ["Sony Music", "Sony", "索尼", "索尼音乐"],
+      "source_page_url": "https://www.sonymusic.com/",
+      "source_asset_url": "https://www.sonymusic.com/favicon.ico",
+      "asset": "assets/logos/sony-music.png",
+      "sha256": "7ce5b3695eb2292981ed540e53d7d3fd656cf4488bb75cf69e78ac7bcf938b48",
+      "fallback_status": "official_icon_plus_plain_text"
+    },
+    {
+      "name": "Warner Music Group",
+      "aliases": ["Warner Music Group", "Warner Music", "Warner", "华纳", "华纳音乐"],
+      "source_page_url": "https://www.wmg.com/logo",
+      "source_asset_url": "https://www.wmg.com/wp-content/uploads/2022/10/WMG-Logo-PNG.zip",
+      "asset": "assets/logos/warner-music.png",
+      "sha256": "ade6590a01d510f6293e4b312add9c988cd5aeb830db863888a183b0e904bd81",
+      "fallback_status": "none"
+    },
+    {
+      "name": "Uber",
+      "aliases": ["Uber"],
+      "source_page_url": "https://brand.uber.com/",
+      "source_asset_url": "https://www.uber.com/favicon.ico",
+      "asset": "assets/logos/uber.png",
+      "sha256": "5e632da7fe9287a81cf5a9f085196ee6c01e71e15b5bfa7f33dc46156ec28a19",
+      "fallback_status": "official_icon_plus_plain_text"
+    },
+    {
+      "name": "OpenAI",
+      "aliases": ["OpenAI"],
+      "source_page_url": "https://openai.com/brand/",
+      "source_asset_url": null,
+      "asset": "assets/logos/openai-text-fallback.png",
+      "sha256": "0aad8a1563f4ff8506141b57d30fbf4fc14fc3827d0892b5c7f6f69b653409b3",
+      "fallback_status": "plain_text_only"
+    },
+    {
+      "name": "Hugging Face",
+      "aliases": ["Hugging Face", "HuggingFace"],
+      "source_page_url": "https://huggingface.co/brand",
+      "source_asset_url": "https://huggingface.co/datasets/huggingface/brand-assets/resolve/main/hf-logo-with-title.png?download=true",
+      "asset": "assets/logos/hugging-face-lockup.png",
+      "sha256": "54989c3f08a04f1d91d4cf806e45b1233752114daed6f73574dfb5792576e7f0",
+      "fallback_status": "none"
+    }
+  ],
+  "combined_reference": {
+    "asset": "assets/logos/official-logo-reference-sheet.png",
+    "sha256": "d83e9f6e08096d26483b9ce80d7c2786d8ee8517e5e0322a0db19d2c898fc817"
+  }
+}

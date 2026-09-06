@@ -1,0 +1,7 @@
+interface:
+  display_name: "AI每日早报"
+  short_description: "用 AIHOT 和 OpenMontage 生成每日早报视频"
+  brand_color: "#2F6BFF"
+  default_prompt: "Use $ai-signal-morning-brief to prepare today's AIHOT edition, build the private AI每日早报 video, and optionally assemble its verified release package."
+policy:
+  allow_implicit_invocation: true

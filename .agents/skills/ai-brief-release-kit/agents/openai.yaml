@@ -1,0 +1,7 @@
+interface:
+  display_name: "AI早报发布整合包"
+  short_description: "从冻结资讯生成可审计的统一发布文案并打包视频与封面成品"
+  brand_color: "#7C4DFF"
+  default_prompt: "Use $ai-brief-release-kit to prepare one source-grounded AI每日早报 title and article description, then assemble the private video release package."
+policy:
+  allow_implicit_invocation: true

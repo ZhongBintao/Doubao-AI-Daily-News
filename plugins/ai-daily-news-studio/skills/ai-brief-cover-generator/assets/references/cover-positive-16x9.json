@@ -1,0 +1,7 @@
+{
+  "status": "positive_qa_reference",
+  "description": "User-approved positive example: warm ivory/orange AI每日早报 cover with truthful Anthropic, OpenAI and Hugging Face brand treatment.",
+  "asset": "cover-positive-16x9.png",
+  "sha256": "c4342e9beb62d7ef263356758aeb35b8a725c6fb92e782f0042efa12cf970321",
+  "allowed_use": "offline visual QA and prompt-contract review only; do not copy its layout into another edition"
+}

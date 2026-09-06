@@ -1,0 +1,7 @@
+interface:
+  display_name: "AI早报复杂写稿"
+  short_description: "从冻结详情生成 v5 丰富概览、完整播音、分页卡片与连续字幕"
+  brand_color: "#C46F4A"
+  default_prompt: "Use $ai-brief-editorial-writer to write a source-grounded v5 AI每日早报 plan with rich overview_text, complete beat narration, claim-driven cards, concrete top-navigation titles, optional claim-matched visual beats, and pronunciation-safe spoken text."
+policy:
+  allow_implicit_invocation: true

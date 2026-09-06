@@ -1,0 +1,7 @@
+interface:
+  display_name: "AI早报语音质量"
+  short_description: "校验发音、WordBoundary、响度与 Gemini 盲测"
+  brand_color: "#2F6BFF"
+  default_prompt: "Use $ai-brief-speech-quality to verify Azure speech alignment, equal-loudness mixing, and the gated Gemini shadow benchmark."
+policy:
+  allow_implicit_invocation: true
