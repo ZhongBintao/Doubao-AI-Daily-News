@@ -308,7 +308,7 @@ def run_editorial_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
                 f"d='{run_dir.name}'; ad=Path('outputs')/d/'artifacts'; "
                 "plan=load_editorial_plan(ad/'editorial_plan.json'); "
                 "ei=json.loads((ad/'editorial_input.json').read_text(encoding='utf-8')); "
-                "si={i['item_id']:SourceItem.from_mapping(i) for i in ei.get('items',[])}; "
+                "si={str(i.get('id') or i.get('item_id')):SourceItem.from_mapping(i) for i in ei.get('items',[]) if isinstance(i,dict)}; "
                 "r=build_editorial_quality_report(plan,ei,si); "
                 "json.dump(r,(ad/'editorial_quality_report.json').open('w',encoding='utf-8'),ensure_ascii=False,indent=2); "
                 "print('Status:',r.get('status')); "
@@ -557,7 +557,7 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
         ei = _read_json(editorial_input_path) or {}
         items = ei.get("items", [])
         first_item = items[0] if items else {}
-        item_id = str(first_item.get("item_id", ""))
+        item_id = str(first_item.get("id") or first_item.get("item_id") or "")
         headline = str(first_item.get("title", "AI 每日早报"))[:80]
         subheadline = str(first_item.get("summary", ""))[:120]
         visual_brief = f"基于资讯: {headline}"

@@ -343,6 +343,24 @@ class TestRunDailyOffline(unittest.TestCase):
         self.assertEqual(_stage_status(state, "script_tts"), "done")
         generate_manifest.assert_called_once()
 
+    def test_editorial_handoff_accepts_serialized_item_id_field(self):
+        run_dir = self.output_root / "2026-09-06"
+        artifacts = run_dir / "artifacts"
+        artifacts.mkdir(parents=True)
+        for name, payload in (
+            ("editorial_input.json", {"items": [{"id": "item-1"}]}),
+            ("writing_request.json", {}),
+            ("editorial_draft.json", {}),
+        ):
+            (artifacts / name).write_text(json.dumps(payload), encoding="utf-8")
+        state = load_state(run_dir)
+        with mock.patch.object(daily, "_print_handoff"):
+            self.assertTrue(daily.run_editorial_handoff(run_dir, state))
+        task = _read_json(artifacts / "editorial_task.json")
+        command = task["validation"]["validate_command"]
+        self.assertIn("i.get('id')", command)
+        self.assertIn("i.get('item_id')", command)
+
     def test_from_stage_resets_range(self):
         self._mock_all_runners()
         # First full run.
