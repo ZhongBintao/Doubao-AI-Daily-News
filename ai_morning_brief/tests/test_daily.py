@@ -26,6 +26,7 @@ from ai_morning_brief.daily import (
     load_state,
     save_state,
 )
+from ai_morning_brief.editorial import document_sha256
 
 
 class TestStageDefinitions(unittest.TestCase):
@@ -306,6 +307,41 @@ class TestRunDailyOffline(unittest.TestCase):
             daily.run_fetch(run_dir, state, run_date)
         self.assertEqual(_stage_status(state, "fetch"), "done")
         self.assertEqual(run_pipeline.call_args.kwargs["output_root"], self.output_root)
+
+    def test_script_tts_reads_current_selection_mode_field(self):
+        run_date = date(2026, 9, 6)
+        run_dir = self.output_root / run_date.isoformat()
+        artifacts = run_dir / "artifacts"
+        artifacts.mkdir(parents=True)
+        editorial_input = {
+            "date": run_date.isoformat(),
+            "selection": {
+                "mode": "no-news",
+                "item_ids": [],
+                "category_counts": {},
+                "eligible_count": 0,
+                "policy": {"dimensions": ["tip"], "minimum_items": 1},
+                "provenance": {"no_news": True, "status_text": "本期不补旧闻。"},
+            },
+            "items": [],
+        }
+        editorial_input["input_sha256"] = document_sha256(editorial_input)
+        (artifacts / "editorial_input.json").write_text(json.dumps(editorial_input, ensure_ascii=False), encoding="utf-8")
+        (artifacts / "editorial_plan.json").write_text(json.dumps({
+            "version": "5.0",
+            "input_sha256": editorial_input["input_sha256"],
+            "edition_mode": "no-news",
+            "writer": {"skill": "ai-brief-editorial-writer", "version": "4.1", "status": "approved"},
+            "stories": [],
+        }), encoding="utf-8")
+        state = load_state(run_dir)
+        with mock.patch(
+            "ai_morning_brief.doubao_tts_adapter.generate_tts_manifest",
+            return_value={"segment_count": 3},
+        ) as generate_manifest:
+            daily.run_script_tts(run_dir, state, run_date)
+        self.assertEqual(_stage_status(state, "script_tts"), "done")
+        generate_manifest.assert_called_once()
 
     def test_from_stage_resets_range(self):
         self._mock_all_runners()

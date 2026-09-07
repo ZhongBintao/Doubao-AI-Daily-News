@@ -345,9 +345,10 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
     import json as _json
     from datetime import date as _date
 
-    from .editorial import finalize_editorial_plan, load_editorial_plan
+    from .editorial import load_editorial_plan
     from .models import SourceItem
     from .script import build_script_from_editorial_plan, validate_script
+    from .writing import finalize_editorial_plan
     from .doubao_tts_adapter import generate_tts_manifest
 
     artifacts_dir = run_dir / "artifacts"
@@ -360,17 +361,22 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
 
     # 2. Build selection object (lightweight shim matching the pipeline's shape).
     source_items = {item["item_id"]: SourceItem.from_mapping(item) for item in editorial_input.get("items", [])}
-    selection_items = tuple(source_items[item_id] for item_id in editorial_input["selection"]["item_ids"] if item_id in source_items)
+    selection_data = editorial_input.get("selection") or {}
+    selection_items = tuple(source_items[item_id] for item_id in selection_data.get("item_ids", []) if item_id in source_items)
 
     class _Selection:
         def __init__(self) -> None:
             self.items = selection_items
-            self.mode = editorial_input["selection"]["status"]
-            self.category_counts = editorial_input["selection"].get("category_counts", {})
-            self.reason = editorial_input["selection"].get("reason", "")
-            self.eligible_count = editorial_input["selection"].get("eligible_count", 0)
-            self.policy = editorial_input["selection"].get("policy", {})
-            self.provenance = editorial_input["selection"].get("provenance", {})
+            # Current editorial_input uses ``mode``.  ``status`` is accepted
+            # only as a compatibility fallback for older dated snapshots;
+            # mixing the two names here previously caused a KeyError at the
+            # script_tts handoff even though prepare had succeeded.
+            self.mode = str(selection_data.get("mode") or selection_data.get("status") or "failure")
+            self.category_counts = selection_data.get("category_counts", {})
+            self.reason = selection_data.get("reason", "")
+            self.eligible_count = selection_data.get("eligible_count", 0)
+            self.policy = selection_data.get("policy", {})
+            self.provenance = selection_data.get("provenance", {})
             self.selection_metadata: dict[str, Any] = {}
 
     # 3. Build narration script.
