@@ -117,7 +117,12 @@ def build_editorial_input(
         "version": EDITORIAL_INPUT_VERSION,
         "prompt_version": EDITORIAL_PROMPT_VERSION,
         "date": run_date.isoformat(),
-        "source": {"url": response_url, "etag": etag, "window": "24h", "mode": "selected"},
+        "source": {
+            "url": response_url,
+            "etag": etag,
+            "window": str(selection.provenance.get("effective_window") or "24h"),
+            "mode": "selected",
+        },
         "selection": {
             "mode": selection.mode,
             "eligible_count": selection.eligible_count,
@@ -125,6 +130,7 @@ def build_editorial_input(
             "item_ids": [item.item_id for item in selection.items],
             "policy": dict(selection.policy),
             "policy_sha256": document_sha256(dict(selection.policy)),
+            "provenance": dict(selection.provenance),
         },
         "items": [_source_item_for_input(item, selection.selection_metadata) for item in selection.items],
     }
@@ -258,6 +264,20 @@ def validate_editorial_plan(plan: Mapping[str, Any], editorial_input: Mapping[st
     stories = plan.get("stories")
     if not isinstance(stories, list):
         return errors + ["editorial plan has no stories list"]
+    no_news_edition = (
+        str(plan.get("edition_mode") or "") == "no-news"
+        or str((editorial_input.get("selection") or {}).get("mode") or "") == "no-news"
+    )
+    if no_news_edition:
+        if str(plan.get("edition_mode") or "") != "no-news":
+            errors.append("no-news editorial plan must declare edition_mode=no-news")
+        if str((editorial_input.get("selection") or {}).get("mode") or "") != "no-news":
+            errors.append("no-news editorial input selection must declare mode=no-news")
+        if stories:
+            errors.append("no-news editorial plan cannot contain stories")
+        if editorial_input.get("items"):
+            errors.append("no-news editorial input cannot contain source items")
+        return errors
     minimum_scenes = 1 if strict_plan else EDITORIAL_MIN_STORIES
     if not minimum_scenes <= len(stories) <= EDITORIAL_MAX_STORIES:
         errors.append(f"editorial plan must contain {minimum_scenes}-{EDITORIAL_MAX_STORIES} stories")

@@ -27,6 +27,7 @@ class AIHotResponse:
     etag: str | None
     from_cache: bool
     category_payloads: Mapping[str, Mapping[str, Any]] | None = None
+    window: str = "24h"
 
 
 class AIHotClient:
@@ -48,14 +49,67 @@ class AIHotClient:
         self.user_agent = f"aihot-skill/{DEFAULT_AIHOT_SKILL_VERSION} (+https://aihot.virxact.com/aihot-skill/)" + suffix
 
     def fetch_selected_24h(self, *, limit: int = 20, force: bool = False) -> AIHotResponse:
+        return self.fetch_selected(window="24h", limit=limit, force=force)
+
+    def fetch_selected(
+        self,
+        *,
+        window: str = "24h",
+        limit: int = 50,
+        force: bool = False,
+    ) -> AIHotResponse:
+        """Fetch the complete selected pool for a rolling AIHOT window."""
+
+        if window not in {"24h", "7d"}:
+            raise ValueError("AIHOT selected window must be 24h or 7d")
         if not 1 <= limit <= 100:
             raise ValueError("AIHOT limit must be between 1 and 100")
-        payload, url, etag, from_cache = self._fetch_page(
-            {"mode": "selected", "window": "24h", "by": "timeline", "limit": str(limit)},
-            force=force,
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        pages: list[dict[str, Any]] = []
+        etags: list[str] = []
+        cache_hits = True
+        while True:
+            params: dict[str, str] = {
+                "mode": "selected",
+                "window": window,
+                "by": "timeline",
+                "limit": str(limit),
+            }
+            if cursor:
+                params["cursor"] = cursor
+            payload, url, etag, from_cache = self._fetch_page(
+                params, force=force if not cursor else False, expected_window=window
+            )
+            pages.append(payload)
+            cache_hits = cache_hits and from_cache
+            if etag:
+                etags.append(etag)
+            page = payload.get("page")
+            if not isinstance(page, Mapping) or not page.get("hasMore"):
+                break
+            next_cursor = page.get("nextCursor")
+            if not isinstance(next_cursor, str) or not next_cursor:
+                raise AIHotError(f"AIHOT {window} pool reported hasMore without nextCursor")
+            if next_cursor in seen_cursors:
+                raise AIHotError(f"AIHOT {window} pool returned a repeated cursor")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+
+        merged = dict(pages[0]) if pages else {}
+        merged["items"] = [
+            item for page in pages for item in page.get("items", []) if isinstance(item, Mapping)
+        ]
+        merged["pages"] = pages
+        merged["page"] = {"count": len(merged["items"]), "hasMore": False, "nextCursor": None}
+        return AIHotResponse(
+            url=f"{self.base_url}?{urllib.parse.urlencode({'mode': 'selected', 'window': window, 'by': 'timeline'})}",
+            payload=merged,
+            items=self._parse_items(merged),
+            etag=",".join(etags) if etags else None,
+            from_cache=cache_hits,
+            window=window,
         )
-        items = self._parse_items(payload)
-        return AIHotResponse(url=url, payload=payload, items=items, etag=etag, from_cache=from_cache)
 
     def fetch_selected_24h_by_category(
         self,
@@ -88,7 +142,11 @@ class AIHotClient:
                 }
                 if cursor:
                     params["cursor"] = cursor
-                payload, _url, etag, from_cache = self._fetch_page(params, force=force if not cursor else False)
+                payload, _url, etag, from_cache = self._fetch_page(
+                    params,
+                    force=force if not cursor else False,
+                    expected_window="24h",
+                )
                 cache_hits = cache_hits and from_cache
                 pages.append(payload)
                 if etag:
@@ -140,6 +198,7 @@ class AIHotClient:
             etag=','.join(etags) if etags else None,
             from_cache=cache_hits,
             category_payloads=category_payloads,
+            window="24h",
         )
 
     def _fetch_page(
@@ -147,6 +206,7 @@ class AIHotClient:
         params: Mapping[str, str],
         *,
         force: bool,
+        expected_window: str = "24h",
     ) -> tuple[dict[str, Any], str, str | None, bool]:
         query = urllib.parse.urlencode(params)
         url = f"{self.base_url}?{query}"
@@ -188,8 +248,12 @@ class AIHotClient:
         if not isinstance(payload, dict):
             raise AIHotError("AIHOT returned a non-object response")
         query_shape = payload.get("query")
-        if not isinstance(query_shape, Mapping) or query_shape.get("mode") != "selected" or query_shape.get("window") != "24h":
-            raise AIHotError("AIHOT response did not match the selected 24h contract")
+        if (
+            not isinstance(query_shape, Mapping)
+            or query_shape.get("mode") != "selected"
+            or query_shape.get("window") != expected_window
+        ):
+            raise AIHotError(f"AIHOT response did not match the selected {expected_window} contract")
         self._parse_items(payload)
         if body_path and not from_cache:
             body_path.write_bytes(raw_payload)
@@ -225,4 +289,5 @@ def load_fixture(path: Path) -> AIHotResponse:
         items=items,
         etag=None,
         from_cache=True,
+        window=str((payload.get("query") or {}).get("window") or "24h"),
     )

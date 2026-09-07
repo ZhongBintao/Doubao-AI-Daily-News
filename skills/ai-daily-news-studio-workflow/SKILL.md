@@ -1,6 +1,6 @@
 ---
 name: ai-daily-news-studio-workflow
-description: Orchestrate one complete private AI每日早报 release package from AIHOT's selected 24-hour feed, including evidence-linked writing, source visuals, Azure speech, OpenMontage video, cover family, publication copy, and verification. Use as the primary plugin entrypoint; honor explicit requests for a smaller stage.
+description: Orchestrate one complete private AI每日早报 release package from AIHOT's selected 24-hour feed, with an audited seven-day sparse-day fallback and deterministic zero-news edition, including evidence-linked writing, source visuals, Doubao voice cloning, OpenMontage video, cover family, publication copy, and verification. Use as the primary plugin entrypoint; honor explicit requests for a smaller stage.
 metadata:
   author: local-project
   version: "0.5.0"
@@ -79,23 +79,34 @@ OpenMontage/.venv/bin/python -m ai_morning_brief.pipeline prepare \
   --source-visual-min-stories 1
 ```
 
-Use only AIHOT's selected 24-hour pool. The runtime requests
-`mode=selected&window=24h&by=timeline` independently for `ai-models`,
-`ai-products`, `industry`, and `paper`, follows each opaque `page.nextCursor`,
-and never falls back to `mode=all`. `window=24h` is a rolling 24-hour window
-at request time; `by=timeline` follows AIHOT's collection timeline, including
+Use AIHOT's selected feed with `mode=selected&window=24h&by=timeline`; the
+runtime follows opaque cursors and accepts every known category (`ai-models`,
+`tip`, `ai-products`, `industry`, `paper`, `other`) plus unknown categories
+without silently dropping them. `window=24h` is a rolling 24-hour window at
+request time; `by=timeline` follows AIHOT's collection timeline, including
 late-discovered slow-source items according to the official contract.
-Scores are ranked only inside each dimension. Do not apply a fixed score
-threshold across dimensions: the selector records raw score, dimension rank,
-rank percentile, both links, and the selection reason in `selection_report.json`.
-The selected output is normally 6–8 items, but fewer than three is a failed
-low-volume run and a dimension with no eligible item remains empty.
+Scores are ranked only inside each returned category. Do not apply a fixed
+score threshold across categories: the selector records raw score, category
+rank, rank percentile, both links, and the selection reason in
+`selection_report.json`. The output is normally 6–8 items; 1–5 items are a
+valid short edition, and one valid item is enough to keep the daily pipeline
+productive.
+
+If the 24-hour pool is empty or has no eligible selected item, make a second
+audited request with `window=7d`. Exclude item IDs already used by a passing,
+materialized edition in the previous seven days, select at most three unseen
+items, and record both attempts plus the effective window in
+`source_snapshot.json` and `selection_report.json`. If no unseen seven-day
+item remains, create an explicit deterministic `edition_mode=no-news` status
+edition. It must say that AIHOT has no new broadcastable selection and must not
+reuse old news, invent filler, or treat the day as a selection failure.
 The selected-feed API is a compact index, not a full article-body or media API.
 After the browser detail step, write a validated
 `artifacts/source_detail_snapshot.json` and let the next pipeline run merge it
 into the frozen editorial input.
-Fewer than three selected items is a failed low-volume run; do not fill gaps
-with old, remembered, or invented news.
+For a zero-news edition, source-visual capture, source-bound cover generation,
+and source-bound release copy are skipped; the status video still follows the
+normal Doubao voice, render, and quality gates.
 
 ### 2. Capture source visuals
 

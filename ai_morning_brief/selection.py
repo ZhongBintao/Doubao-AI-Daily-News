@@ -17,7 +17,7 @@ from .models import SelectionResult, SourceItem
 
 @dataclass(frozen=True)
 class SelectionPolicy:
-    """Adaptive policy for a frozen, four-dimension AIHOT candidate pool."""
+    """Adaptive policy for a frozen AIHOT candidate pool."""
 
     dimensions: tuple[str, ...] = EDITORIAL_DIMENSIONS
     soft_min: int = DEFAULT_SELECTION_SOFT_MIN
@@ -60,7 +60,8 @@ def _ranked_candidates(items: Iterable[SourceItem], dimension: str) -> list[tupl
     unique: list[tuple[SourceItem, int]] = []
     seen: set[str] = set()
     for api_index, item in enumerate(items):
-        if item.category != dimension or not item.selected or not item.title.strip() or item.item_id in seen:
+        category = item.category or "other"
+        if category != dimension or not item.selected or not item.title.strip() or item.item_id in seen:
             continue
         seen.add(item.item_id)
         unique.append((item, api_index))
@@ -177,6 +178,21 @@ def select_items_by_dimension(
         reason=reason,
         selection_metadata=records,
         policy=policy.to_dict(),
+    )
+
+
+def make_no_news_selection(policy: SelectionPolicy, *, reason: str, provenance: Mapping[str, Any]) -> SelectionResult:
+    """Create the explicit zero-source result used by the status edition."""
+
+    return SelectionResult(
+        items=tuple(),
+        mode="no-news",
+        category_counts={},
+        eligible_count=0,
+        reason=reason,
+        selection_metadata={},
+        policy=policy.to_dict(),
+        provenance=dict(provenance),
     )
 
 

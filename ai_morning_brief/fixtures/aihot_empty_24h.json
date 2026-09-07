@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "query": {
+    "mode": "selected",
+    "window": "24h",
+    "by": "timeline",
+    "ordering": "timelineDesc"
+  },
+  "items": [],
+  "page": {"count": 0, "hasMore": false, "nextCursor": null}
+}

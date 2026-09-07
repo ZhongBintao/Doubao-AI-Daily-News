@@ -18,7 +18,7 @@ metadata:
 | 音色 | Azure `zh-CN-Xiaochen:DragonHDLatestNeural` | 固定文字描述（"温柔桃子风格"） | 参考音频 `example-audio.mp3` 克隆 |
 | 字幕对齐 | Azure WordBoundary 回调（字级精确） | 比例估算 | 比例估算 |
 | API 密钥 | 需要 `AZURE_SPEECH_KEY` | 不需要 | 不需要 |
-| 审核文件 | `azure_audio_manifest.json` | `doubao_audio_manifest.json` | `doubao_audio_manifest.json` (provider=doubao-voice-clone) |
+| 审核文件 | `azure_audio_manifest.json` | `doubao_audio_manifest.json` | `doubao_audio_manifest.json` (`provider=doubao-voice-clone`) |
 
 ## 语音克隆参考音频
 
@@ -43,7 +43,8 @@ metadata:
 1. `narration_plan.json` 已生成且通过校验
 2. `editorial_quality_report.json` = `pass`
 3. `example-audio.mp3` 存在于项目根目录
-4. `doubao_tts_adapter.py` 可用（项目 `ai_morning_brief/` 目录下）
+4. `doubao_tts_adapter.py` 可用（项目 `ai_morning_brief/` 目录下）；适配器的
+   `DEFAULT_TTS_MODE` 是唯一默认值，当前为 `voice-clone`
 5. 豆包 `audio_to_audio_plus` 工具可用
 6. ffmpeg 可用（用于音频归一化）
 
@@ -56,7 +57,8 @@ python3 -m ai_morning_brief.doubao_tts_adapter prepare --date YYYY-MM-DD
 ```
 
 输出：
-- `artifacts/doubao_tts_checklist.json`（待合成清单）
+- `artifacts/tts_manifest.json`（待合成清单；每段以 `spoken_text` 和
+  `output_path` 为准）
 - 终端显示每个 segment 的 ID、字数、输出路径
 
 检查清单中每个 segment 包含：
@@ -102,9 +104,9 @@ finalize 自动完成：
 3. **自动填充短时长 segment**：如果某段音频时长低于 `minimum_duration_seconds`（如 overview 段要求 5 秒），用尾部静音填充到目标时长
 4. 读取每段音频的实际时长
 5. 生成 `artifacts/doubao_audio_manifest.json`，schema 与 Gemini manifest 兼容：
-   - `provider`: `"doubao"`
-   - `voice`: `"doubao-in-conversation-gentle-peach"`
-   - `alignment_provider`: `"doubao-proportional"`
+   - `provider`: `"doubao-voice-clone"`（voice-clone 模式）
+   - `voice`: `"voice-clone:example-audio.mp3"`（默认参考音频）
+   - `alignment_provider`: `"doubao-voice-clone-proportional"`
    - `alignment_quality`: `"approximate"`
    - `native_word_boundary`: `false`
    - 每段的 `spoken_duration_seconds`、`duration_seconds`、`display_text`
@@ -123,7 +125,9 @@ OpenMontage/.venv/bin/python -m ai_morning_brief.pipeline run \
 
 pipeline 自动完成：
 1. 读取 `doubao_audio_manifest.json`
-2. 因为 `provider=doubao` 且 `native_word_boundary=false`，自动走**比例估算字幕**路径
+2. 因为 `native_word_boundary=false`，自动走**比例估算字幕**路径；每段音频
+   使用 manifest 声明的 `audio_path`，并校验 `spoken_text` 与 `sha256`，防止
+   变量不一致、旧文案或错文件被静默复用
    - 字幕文字 100% 来自 `narration_plan.json` 的写稿文案（非识别结果）
    - 每段字幕的时间戳按该段音频时长占总时长的比例估算
    - 字幕单元以完整短句为单位，不在逗号处机械拆分

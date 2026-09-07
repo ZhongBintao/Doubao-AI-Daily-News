@@ -24,19 +24,26 @@ CATEGORY_LABELS = {
     "other": "前瞻与传闻",
 }
 CATEGORY_ORDER = tuple(CATEGORY_LABELS)
-# New editions select from four independent AIHOT dimensions.  The broader
-# legacy order above remains for old fixtures and historical plans.
-EDITORIAL_DIMENSIONS = ("ai-models", "ai-products", "industry", "paper")
+# New editions select from every known AIHOT dimension. ``tip`` used to be
+# omitted here, which made a valid sparse day look empty when all fresh items
+# belonged to that category. Unknown categories are appended dynamically by
+# the pipeline instead of being silently dropped.
+EDITORIAL_DIMENSIONS = CATEGORY_ORDER
 EDITORIAL_DIMENSION_LABELS = {
     "ai-models": "模型",
+    "tip": "开发生态",
     "ai-products": "产品",
     "industry": "行业",
     "paper": "论文",
+    "other": "其他",
 }
 DEFAULT_SELECTION_CANDIDATE_PAGE_SIZE = 50
 DEFAULT_SELECTION_SOFT_MIN = 6
 DEFAULT_SELECTION_MAX_ITEMS = 8
 DEFAULT_SELECTION_HEAD_SHARE = 0.5
+DEFAULT_SELECTION_MINIMUM_ITEMS = 1
+DEFAULT_SELECTION_FALLBACK_WINDOW = "7d"
+DEFAULT_SELECTION_FALLBACK_MAX_ITEMS = 3
 DEFAULT_BRIEF_GROUP_MAX_CARDS = 4
 DEFAULT_VOICE = "zh-CN-Xiaochen:DragonHDLatestNeural"
 DEFAULT_LOCALE = "zh-CN"
@@ -73,6 +80,20 @@ SOURCE_VISUAL_CARD_CHARS_PER_SECOND = 10.0
 # value shared by script planning and HTML materialization so the page switch
 # cannot drift from the editorial contract.
 OVERVIEW_PAGE_DURATION_SECONDS = 5.0
+
+
+def editorial_dimensions_for_categories(categories: object) -> tuple[str, ...]:
+    """Return known categories in editorial order plus future AIHOT slugs."""
+
+    present = {
+        str(value or "other").strip() or "other"
+        for value in (categories if isinstance(categories, (list, tuple, set, frozenset)) else ())
+    }
+    if not present:
+        return EDITORIAL_DIMENSIONS
+    known = [value for value in CATEGORY_ORDER if value in present]
+    unknown = sorted(present.difference(CATEGORY_ORDER))
+    return tuple(known + unknown)
 
 
 def env_path() -> Path:

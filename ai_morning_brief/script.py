@@ -445,40 +445,6 @@ def build_script(selection: SelectionResult, *, run_date: date, show_name: str =
     }
 
 
-def _realign_spoken_to_units(
-    units: tuple[dict[str, Any], ...], segment_spoken: str
-) -> tuple[dict[str, Any], ...]:
-    """Redistribute the segment-level spoken text across caption units.
-
-    Normalizing each caption unit in isolation diverges from normalizing the
-    joined display text: unit boundaries add or drop leading/trailing spaces
-    and split numeric context (``1797`` + ``分``) normalizes differently once
-    joined.  TTS consumes the segment-level text, so the unit texts are
-    re-derived from it proportionally, keeping every downstream consumer on
-    one canonical string.
-    """
-    if not units or not segment_spoken:
-        return units
-    weights = [len(str(unit.get("spoken_text") or "")) for unit in units]
-    total = sum(weights)
-    if total <= 0:
-        weights = [1] * len(units)
-        total = len(units)
-    result: list[dict[str, Any]] = []
-    consumed = 0
-    scaled = 0
-    for index, (unit, weight) in enumerate(zip(units, weights)):
-        scaled += weight
-        if index == len(units) - 1:
-            piece = segment_spoken[consumed:]
-        else:
-            target = round(len(segment_spoken) * scaled / total)
-            piece = segment_spoken[consumed:target]
-            consumed = target
-        result.append({**unit, "spoken_text": piece})
-    return tuple(result)
-
-
 def build_script_from_editorial_plan(
     selection: SelectionResult,
     *,
@@ -504,6 +470,10 @@ def build_script_from_editorial_plan(
     used_progress_labels: set[str] = set()
     story_entries = list(enumerate(editorial_plan["stories"]))
     plan_version = str(editorial_plan.get("version") or "")
+    no_news_edition = (
+        selection.mode == "no-news"
+        or str(editorial_plan.get("edition_mode") or "") == "no-news"
+    )
     if plan_version in {"5.0", "4.0"}:
         story_entries.sort(key=lambda pair: (int(pair[1].get("presentation_order") or 999999), pair[0]))
     else:
@@ -549,14 +519,9 @@ def build_script_from_editorial_plan(
                     })
             caption_units = tuple(fallback_units)
         display_text = "".join(str(unit.get("display_text") or "") for unit in caption_units)
+        spoken_text = "".join(str(unit.get("spoken_text") or "") for unit in caption_units)
         narration_display_text = display_text or normalize_display_text(narration.get("display_text"))
-        # Joining per-unit normalized speech diverges from normalizing the joined
-        # display text (unit-boundary spaces, split numeric context such as
-        # "1797" + "分").  Derive the segment spoken text from the whole display
-        # text and re-align the caption units to it so that every consumer
-        # (TTS segments, subtitle caption units) observes one canonical string.
-        narration_spoken_text = normalize_with_ledger(narration_display_text).spoken_text
-        caption_units = _realign_spoken_to_units(caption_units, narration_spoken_text)
+        narration_spoken_text = spoken_text or normalize_with_ledger(narration_display_text).spoken_text
         cards = tuple(
             {**dict(card), **{
                 field: normalize_display_text(card.get(field))
@@ -610,11 +575,6 @@ def build_script_from_editorial_plan(
             )
         )
 
-    intro_text = (
-        f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。"
-        "欢迎收看AI早报。"
-    )
-    intro_spoken = normalize_with_ledger(intro_text).spoken_text
     intro = ScriptSegment(
         segment_id="intro",
         kind="intro",
@@ -622,13 +582,23 @@ def build_script_from_editorial_plan(
         category="开场",
         source_item_id=None,
         source_name=None,
-        broadcast_text=intro_text,
+        broadcast_text=(
+            f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。"
+            "欢迎收看AI早报。"
+        ),
         source_fragments=tuple(),
         screen_points=tuple(),
         layout_type="intro",
-        display_text=intro_text,
-        spoken_text=intro_spoken,
-        caption_units=_realign_spoken_to_units(_caption_units_for_text(intro_text), intro_spoken),
+        display_text=(
+            f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。"
+            "欢迎收看AI早报。"
+        ),
+        spoken_text=normalize_with_ledger(
+            f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。欢迎收看AI早报。"
+        ).spoken_text,
+        caption_units=_caption_units_for_text(
+            f"各位观众早上好，今天是{run_date.month}月{run_date.day}日。欢迎收看AI早报。"
+        ),
     )
     if plan_version in {"5.0", "4.0"}:
         overview_items = [
@@ -663,14 +633,32 @@ def build_script_from_editorial_plan(
             if _clean(story.get("overview_text")):
                 overview_text_overrides[item_id] = _clean(story.get("overview_text"))
             overview_claim_overrides[item_id] = [str(value) for value in story.get("overview_claim_ids") or [] if value]
-    overview_groups = _overview_groups(
-        overview_items,
-        title_overrides=overview_title_overrides,
-        text_overrides=overview_text_overrides,
-        claim_overrides=overview_claim_overrides,
-        category_order=tuple(selection.policy.get("dimensions") or CATEGORY_ORDER),
-        category_labels=EDITORIAL_DIMENSION_LABELS if selection.policy.get("dimensions") else CATEGORY_LABELS,
-    )
+    if no_news_edition:
+        status_text = str(
+            selection.provenance.get("status_text")
+            or "截至本期制作时，AIHOT 当前精选池没有可播报的新资讯。本期不补旧闻。"
+        )
+        overview_groups = (
+            {
+                "category": "status",
+                "label": "今日播报",
+                "items": [{
+                    "item_id": "edition-status",
+                    "title": "今日暂无新增精选",
+                    "text": status_text,
+                    "claim_ids": [],
+                }],
+            },
+        )
+    else:
+        overview_groups = _overview_groups(
+            overview_items,
+            title_overrides=overview_title_overrides,
+            text_overrides=overview_text_overrides,
+            claim_overrides=overview_claim_overrides,
+            category_order=tuple(selection.policy.get("dimensions") or CATEGORY_ORDER),
+            category_labels=EDITORIAL_DIMENSION_LABELS if selection.policy.get("dimensions") else CATEGORY_LABELS,
+        )
     overview_pages = _overview_pages(
         overview_groups,
         layout_mode="content_height" if plan_version in {"5.0", "4.0"} else "legacy",
@@ -678,20 +666,24 @@ def build_script_from_editorial_plan(
     overview = ScriptSegment(
         segment_id="overview",
         kind="overview",
-        title=f"{run_date.isoformat()} 资讯概览",
+        title="今日无新增精选" if no_news_edition else f"{run_date.isoformat()} 资讯概览",
         category="overview",
         source_item_id=None,
         source_name=None,
-        broadcast_text="首先来看今日资讯概览。",
+        broadcast_text=("今天的AIHOT没有新增精选，本期不补旧闻。" if no_news_edition else "首先来看今日资讯概览。"),
         source_fragments=tuple(),
         screen_points=tuple(),
         layout_type="overview",
         screen_groups=overview_groups,
         screen_pages=overview_pages,
         minimum_duration_seconds=round(sum(float(page.get("duration_seconds") or 0.0) for page in overview_pages), 3),
-        display_text="首先来看今日资讯概览。",
-        spoken_text="首先来看今日资讯概览。",
-        caption_units=_caption_units_for_text("首先来看今日资讯概览。"),
+        display_text=("今天的AIHOT没有新增精选，本期不补旧闻。" if no_news_edition else "首先来看今日资讯概览。"),
+        spoken_text=normalize_with_ledger(
+            "今天的AIHOT没有新增精选，本期不补旧闻。" if no_news_edition else "首先来看今日资讯概览。"
+        ).spoken_text,
+        caption_units=_caption_units_for_text(
+            "今天的AIHOT没有新增精选，本期不补旧闻。" if no_news_edition else "首先来看今日资讯概览。"
+        ),
     )
     outro = ScriptSegment(
         segment_id="outro",
@@ -715,6 +707,7 @@ def build_script_from_editorial_plan(
         "show_name_en": DEFAULT_SHOW_NAME_EN,
         "date": run_date.isoformat(),
         "mode": selection.mode,
+        "edition_mode": "no-news" if no_news_edition else "news",
         "title": f"{run_date.isoformat()} {show_name}",
         "opening": {"duration_seconds": 4.0, "style": "editorial-reveal", "hero_segment_id": overview.segment_id},
         "segments": [segment.to_dict() for segment in ordered],

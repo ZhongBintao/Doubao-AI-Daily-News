@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 from .config import (
     DEFAULT_OUTPUT_ROOT,
     DEFAULT_OPENMONTAGE_ROOT,
+    DEFAULT_TTS_MODE,
     DEFAULT_VOICE_CLONE_REFERENCE_AUDIO,
     DOUBAO_VOICE_CLONE_PROVIDER,
     REPO_ROOT,
@@ -225,7 +226,7 @@ def run_fetch(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
 
     report = run_pipeline(
         run_date=run_date,
-        output_root=DEFAULT_OUTPUT_ROOT,
+        output_root=run_dir.parent,
         openmontage_root=DEFAULT_OPENMONTAGE_ROOT,
         env_file=env_path(),
         prepare_only=True,
@@ -237,8 +238,8 @@ def run_fetch(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
 
     selection = (report.get("details") or {}).get("selection") or {}
     selected_count = int(selection.get("selected_count", 0))
-    if selected_count < 3:
-        raise RuntimeError(f"AIHOT 选中资讯不足 3 条 (selected={selected_count})，今日素材不足，终止运行")
+    if str(selection.get("status") or "") == "failure":
+        raise RuntimeError(f"AIHOT 选题失败: {selection.get('reason') or 'unknown selection failure'}")
 
     artifacts = {
         "selected_count": selected_count,
@@ -307,7 +308,7 @@ def run_editorial_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
                 f"d='{run_dir.name}'; ad=Path('outputs')/d/'artifacts'; "
                 "plan=load_editorial_plan(ad/'editorial_plan.json'); "
                 "ei=json.loads((ad/'editorial_input.json').read_text(encoding='utf-8')); "
-                "si={i['id']:SourceItem.from_mapping(i) for i in ei.get('items',[])}; "
+                "si={i['item_id']:SourceItem.from_mapping(i) for i in ei.get('items',[])}; "
                 "r=build_editorial_quality_report(plan,ei,si); "
                 "json.dump(r,(ad/'editorial_quality_report.json').open('w',encoding='utf-8'),ensure_ascii=False,indent=2); "
                 "print('Status:',r.get('status')); "
@@ -344,8 +345,7 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
     import json as _json
     from datetime import date as _date
 
-    from .editorial import load_editorial_plan
-    from .writing import finalize_editorial_plan
+    from .editorial import finalize_editorial_plan, load_editorial_plan
     from .models import SourceItem
     from .script import build_script_from_editorial_plan, validate_script
     from .doubao_tts_adapter import generate_tts_manifest
@@ -359,25 +359,19 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
     write_json(artifacts_dir / "editorial_plan_final.json", plan)
 
     # 2. Build selection object (lightweight shim matching the pipeline's shape).
-    source_items = {item["id"]: SourceItem.from_mapping(item) for item in editorial_input.get("items", [])}
+    source_items = {item["item_id"]: SourceItem.from_mapping(item) for item in editorial_input.get("items", [])}
     selection_items = tuple(source_items[item_id] for item_id in editorial_input["selection"]["item_ids"] if item_id in source_items)
 
     class _Selection:
-        """Lightweight shim matching ai_morning_brief.models.SelectionResult.
-
-        Field names must mirror the serialized editorial_input: the JSON uses
-        `mode` (not `status`) and each item is keyed by `id` (not `item_id`).
-        """
-
         def __init__(self) -> None:
             self.items = selection_items
-            self.mode = editorial_input["selection"]["mode"]
+            self.mode = editorial_input["selection"]["status"]
             self.category_counts = editorial_input["selection"].get("category_counts", {})
             self.reason = editorial_input["selection"].get("reason", "")
             self.eligible_count = editorial_input["selection"].get("eligible_count", 0)
+            self.policy = editorial_input["selection"].get("policy", {})
+            self.provenance = editorial_input["selection"].get("provenance", {})
             self.selection_metadata: dict[str, Any] = {}
-            # SelectionResult declares `policy`; downstream code may read it.
-            self.policy = dict(editorial_input["selection"].get("policy") or {})
 
     # 3. Build narration script.
     script = build_script_from_editorial_plan(
@@ -392,7 +386,7 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
     write_json(artifacts_dir / "narration_plan.json", script)
 
     # 4. Generate TTS manifest (voice-clone mode by default).
-    tts_manifest = generate_tts_manifest(run_dir, tts_mode="voice-clone")
+    tts_manifest = generate_tts_manifest(run_dir, tts_mode=DEFAULT_TTS_MODE)
 
     _set_stage(state, "script_tts", status="done", finished_at=_now().isoformat(), artifacts={
         "narration_plan": str(artifacts_dir / "narration_plan.json"),
@@ -468,12 +462,12 @@ def run_render(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
         )
 
     # 2. Finalize audio (normalize + manifest).
-    verify_and_finalize(run_dir, tts_mode="voice-clone")
+    verify_and_finalize(run_dir, tts_mode=DEFAULT_TTS_MODE)
 
     # 3. Run full pipeline render with audio reuse.
     report = run_pipeline(
         run_date=run_date,
-        output_root=DEFAULT_OUTPUT_ROOT,
+        output_root=run_dir.parent,
         openmontage_root=DEFAULT_OPENMONTAGE_ROOT,
         env_file=env_path(),
         prepare_only=False,
@@ -510,18 +504,28 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     Returns True if handoff is needed, False if all 3 covers already exist.
     """
     covers_dir = run_dir / "release-kit" / "covers"
+    if _is_no_news_edition(run_dir):
+        covers_dir.mkdir(parents=True, exist_ok=True)
+        write_json(covers_dir / "cover_task.json", {
+            "version": "1.0",
+            "date": run_dir.name,
+            "status": "skipped_no_news",
+            "reason": "零讯短报没有来源新闻，不生成来源绑定封面",
+            "expected_files": [],
+        })
+        _set_stage(
+            state,
+            "cover",
+            status="done",
+            finished_at=_now().isoformat(),
+            artifacts={"skipped": "no-news edition", "cover_task": str(covers_dir / "cover_task.json")},
+        )
+        return False
     expected = ["16x9.png", "3x4.png", "9x16.png"]
     existing = [f for f in expected if (covers_dir / f).is_file() and (covers_dir / f).stat().st_size > 0]
     if len(existing) == 3:
-        # release_workflow requires a schema-5 cover manifest (status
-        # complete_unreviewed, per-result generated_file).  The cover handoff
-        # only produces the three PNGs, so without this step every fresh run
-        # stalls at release until the manifest is authored by hand (observed
-        # on the cloud computer 2026-09-06).
-        _ensure_cover_manifest(covers_dir)
         _set_stage(state, "cover", status="done", finished_at=_now().isoformat(),
-                    artifacts={"covers": [str(covers_dir / f) for f in expected],
-                               "cover_manifest": str(covers_dir / "cover_manifest.json")})
+                    artifacts={"covers": [str(covers_dir / f) for f in expected]})
         return False
 
     # Try to generate cover_request.json via cover_workflow.py prepare.
@@ -535,7 +539,7 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
         ei = _read_json(editorial_input_path) or {}
         items = ei.get("items", [])
         first_item = items[0] if items else {}
-        item_id = str(first_item.get("id", ""))
+        item_id = str(first_item.get("item_id", ""))
         headline = str(first_item.get("title", "AI 每日早报"))[:80]
         subheadline = str(first_item.get("summary", ""))[:120]
         visual_brief = f"基于资讯: {headline}"
@@ -594,36 +598,6 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     return True
 
 
-def _ensure_cover_manifest(covers_dir: Path) -> None:
-    """Create covers/cover_manifest.json via cover_workflow record when missing.
-
-    The release stage always passes --cover-manifest, and release_workflow
-    expects a schema-5 manifest even when covers are intentionally absent.
-    The cover handoff itself only produces the three PNGs, so generate the
-    manifest here.  Failures are non-fatal: run_release falls back to a
-    no-cover package.
-    """
-    manifest = covers_dir / "cover_manifest.json"
-    if manifest.is_file() and manifest.stat().st_size > 0:
-        return
-    cover_script = REPO_ROOT / "skills" / "ai-brief-cover-generator" / "scripts" / "cover_workflow.py"
-    request = covers_dir / "cover_request.json"
-    if not (cover_script.is_file() and request.is_file()):
-        print("  [WARN] cannot build cover manifest: cover_workflow.py or cover_request.json missing", file=sys.stderr)
-        return
-    cmd = [
-        sys.executable, str(cover_script), "record",
-        "--request", str(request),
-        "--image", f"16:9={covers_dir / '16x9.png'}",
-        "--image", f"3:4={covers_dir / '3x4.png'}",
-        "--image", f"9:16={covers_dir / '9x16.png'}",
-        "--force",
-    ]
-    result = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60, check=False)
-    if result.returncode != 0:
-        print(f"  [WARN] cover_workflow record failed: {(result.stderr or '')[-300:]}", file=sys.stderr)
-
-
 def _extract_prompt(ratios: Any, key: str) -> str:
     """Extract the seedream_prompt from a cover request ratios structure."""
     if not isinstance(ratios, Mapping):
@@ -640,6 +614,23 @@ def _extract_prompt(ratios: Any, key: str) -> str:
 
 def run_release(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
     """Generate release copy and assemble the publish package."""
+    if _is_no_news_edition(run_dir):
+        release_dir = run_dir / "release-kit"
+        release_dir.mkdir(parents=True, exist_ok=True)
+        write_json(release_dir / "release_status.json", {
+            "version": "1.0",
+            "date": run_date.isoformat(),
+            "status": "skipped_no_news",
+            "reason": "零讯短报没有来源新闻，不生成来源绑定发布包",
+        })
+        _set_stage(
+            state,
+            "release",
+            status="done",
+            finished_at=_now().isoformat(),
+            artifacts={"skipped": "no-news edition", "release_status": str(release_dir / "release_status.json")},
+        )
+        return
     release_script = REPO_ROOT / "skills" / "ai-brief-release-kit" / "scripts" / "release_workflow.py"
     if not release_script.is_file():
         print("  [WARN] release_workflow.py not found, skipping release stage", file=sys.stderr)
@@ -664,7 +655,7 @@ def run_release(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
             if title:
                 desc_parts.append(title)
         description = "；".join(desc_parts) if desc_parts else f"AI每日早报{run_date.isoformat()}"
-        primary_item_id = str(items[0].get("id", "")) if items else ""
+        primary_item_id = str(items[0].get("item_id", "")) if items else ""
 
         cmd = [
             sys.executable, str(release_script), "prepare",
@@ -690,12 +681,7 @@ def run_release(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
     ]
     result = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=120, check=False)
     if result.returncode != 0:
-        # Cover manifest may not exist if cover was skipped; try without it.
-        print(f"  [WARN] release finalize with cover failed: {(result.stderr or '')[-200:]}", file=sys.stderr)
-        cmd_no_cover = [c for c in cmd if c != "--cover-manifest" and not str(c).endswith("cover_manifest.json")]
-        result = subprocess.run(cmd_no_cover, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=120, check=False)
-        if result.returncode != 0:
-            raise RuntimeError(f"release_workflow finalize failed: {(result.stderr or '')[-300:]}")
+        raise RuntimeError(f"release_workflow finalize failed: {(result.stderr or '')[-300:]}")
 
     package_dir = release_dir / "video-publish-package"
     _set_stage(state, "release", status="done", finished_at=_now().isoformat(), artifacts={
@@ -774,6 +760,11 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _is_no_news_edition(run_dir: Path) -> bool:
+    editorial = _read_json(run_dir / "artifacts" / "editorial_input.json") or {}
+    return str((editorial.get("selection") or {}).get("mode") or "") == "no-news"
 
 
 # ---------------------------------------------------------------------------
@@ -859,7 +850,9 @@ def run_daily(
                 # Already complete; stage marked done inside the handoff function.
             else:
                 runner = STAGE_RUNNERS[name]
-                # Runners that need run_date get it; bootstrap doesn't.
+                # Runners that need run_date get it; bootstrap doesn't. Fetch
+                # and render derive their output root from run_dir so the
+                # caller's --output-root is honored consistently.
                 if name == "bootstrap":
                     runner(run_dir, state)
                 else:

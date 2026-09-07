@@ -41,6 +41,7 @@ from typing import Any, Mapping
 from .config import (
     DEFAULT_LOCALE,
     DEFAULT_OUTPUT_ROOT,
+    DEFAULT_TTS_MODE,
     DEFAULT_VOICE_CLONE_REFERENCE_AUDIO,
     DOUBAO_VOICE_CLONE_ALIGNMENT,
     DOUBAO_VOICE_CLONE_PROVIDER,
@@ -98,6 +99,40 @@ def _segment_entries(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def _audio_path(run_dir: Path, segment_id: str) -> Path:
     return run_dir / "assets" / "audio" / f"narration-{segment_id}.wav"
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _resolve_declared_audio_path(run_dir: Path, declared_path: str | None, segment_id: str) -> Path:
+    """Resolve a checklist path while keeping generated audio inside the run."""
+
+    candidate = Path(str(declared_path or "")) if declared_path else _audio_path(run_dir, segment_id)
+    if not candidate.is_absolute():
+        candidate = run_dir / candidate
+    resolved_run = run_dir.resolve()
+    resolved_candidate = candidate.resolve()
+    if resolved_candidate != resolved_run and resolved_run not in resolved_candidate.parents:
+        raise RuntimeError(f"audio output_path escapes the edition directory for {segment_id}")
+    return resolved_candidate
+
+
+def _load_tts_manifest(run_dir: Path) -> dict[str, Any] | None:
+    path = run_dir / "artifacts" / "tts_manifest.json"
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"could not read tts_manifest.json: {path}") from exc
+    if not isinstance(value, Mapping):
+        raise RuntimeError(f"invalid tts_manifest.json: {path}")
+    return dict(value)
 
 
 def _normalise_wav(source: Path, target: Path) -> None:
@@ -177,7 +212,7 @@ def _tts_mode_voice_label(tts_mode: str, reference_info: Mapping[str, Any] | Non
 def generate_tts_manifest(
     run_dir: Path,
     *,
-    tts_mode: str = "voice-clone",
+    tts_mode: str = DEFAULT_TTS_MODE,
     reference_audio: Path | None = None,
 ) -> dict[str, Any]:
     """Generate the TTS synthesis manifest (orchestrator-facing importable API).
@@ -256,15 +291,20 @@ def verify_audio_complete(run_dir: Path) -> tuple[bool, list[str]]:
     tts_manifest.json if present, otherwise from narration_plan.json.
     """
     manifest_path = run_dir / "artifacts" / "tts_manifest.json"
+    declared_paths: dict[str, Path] = {}
     if manifest_path.is_file():
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        segment_ids = [str(s.get("segment_id") or "") for s in data.get("segments", []) if s.get("segment_id")]
+        data = _load_tts_manifest(run_dir) or {}
+        for entry in data.get("segments", []):
+            if isinstance(entry, Mapping) and entry.get("segment_id"):
+                segment_id = str(entry["segment_id"])
+                declared_paths[segment_id] = _resolve_declared_audio_path(run_dir, entry.get("output_path"), segment_id)
+        segment_ids = list(declared_paths)
     else:
         plan = _load_narration_plan(run_dir)
         segment_ids = [e["segment_id"] for e in _segment_entries(plan)]
     missing: list[str] = []
     for segment_id in segment_ids:
-        path = _audio_path(run_dir, segment_id)
+        path = declared_paths.get(segment_id) or _audio_path(run_dir, segment_id)
         if not path.is_file() or path.stat().st_size <= 0:
             missing.append(segment_id)
     return (len(missing) == 0, missing)
@@ -273,7 +313,7 @@ def verify_audio_complete(run_dir: Path) -> tuple[bool, list[str]]:
 def verify_and_finalize(
     run_dir: Path,
     *,
-    tts_mode: str = "voice-clone",
+    tts_mode: str = DEFAULT_TTS_MODE,
     reference_audio: Path | None = None,
 ) -> dict[str, Any]:
     """Verify all segment audio, normalise, and write the final manifest.
@@ -301,10 +341,19 @@ def verify_and_finalize(
     manifest_segments: list[dict[str, Any]] = []
     durations: dict[str, float] = {}
     spoken_durations: dict[str, float] = {}
+    tts_manifest = _load_tts_manifest(run_dir) or {}
+    declared_entries = {
+        str(item.get("segment_id")): item
+        for item in tts_manifest.get("segments", [])
+        if isinstance(item, Mapping) and item.get("segment_id")
+    }
 
     for entry in entries:
         segment_id = entry["segment_id"]
-        raw_path = _audio_path(run_dir, segment_id)
+        declared = declared_entries.get(segment_id) or {}
+        if declared and str(declared.get("spoken_text") or "") != entry["spoken_text"]:
+            raise RuntimeError(f"tts_manifest spoken_text is stale for segment {segment_id}; regenerate prepare")
+        raw_path = _resolve_declared_audio_path(run_dir, declared.get("output_path"), segment_id)
         if not raw_path.is_file() or raw_path.stat().st_size <= 0:
             raise RuntimeError(f"audio file not found for segment {segment_id}: {raw_path}")
 
@@ -340,7 +389,7 @@ def verify_and_finalize(
 
         manifest_segments.append({
             "segment_id": segment_id,
-            "audio_path": f"assets/audio/{raw_path.name}",
+            "audio_path": raw_path.relative_to(run_dir).as_posix(),
             "provider": provider,
             "voice": voice_label,
             "locale": DEFAULT_LOCALE,
@@ -352,6 +401,7 @@ def verify_and_finalize(
             "display_text": entry["display_text"],
             "spoken_text": entry["spoken_text"],
             "native_word_boundary": False,
+            "sha256": _file_sha256(raw_path),
         })
 
     manifest = {
@@ -401,7 +451,7 @@ def verify_and_finalize(
 
 def cmd_prepare(args: argparse.Namespace) -> int:
     run_dir = _run_dir_for_date(args.date)
-    tts_mode = getattr(args, "tts_mode", "voice-clone")
+    tts_mode = getattr(args, "tts_mode", DEFAULT_TTS_MODE)
     reference = Path(args.reference_audio) if getattr(args, "reference_audio", None) else None
     try:
         manifest = generate_tts_manifest(run_dir, tts_mode=tts_mode, reference_audio=reference)
@@ -430,7 +480,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     entries = _segment_entries(plan)
     done = 0
     for entry in entries:
-        path = _audio_path(run_dir, entry["segment_id"])
+        path = _resolve_declared_audio_path(run_dir, entry.get("output_path"), entry["segment_id"])
         if path.is_file() and path.stat().st_size > 0:
             done += 1
             print(f"  [DONE] {entry['segment_id']:12s} ({path.stat().st_size // 1024} KB)")
@@ -442,7 +492,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_finalize(args: argparse.Namespace) -> int:
     run_dir = _run_dir_for_date(args.date)
-    tts_mode = getattr(args, "tts_mode", "voice-clone")
+    tts_mode = getattr(args, "tts_mode", DEFAULT_TTS_MODE)
     reference = Path(args.reference_audio) if getattr(args, "reference_audio", None) else None
     try:
         manifest = verify_and_finalize(run_dir, tts_mode=tts_mode, reference_audio=reference)
@@ -474,7 +524,7 @@ def main() -> int:
     ]:
         sub = subparsers.add_parser(name, help=help_text)
         sub.add_argument("--date", required=True, help="Edition date, YYYY-MM-DD")
-        sub.add_argument("--tts-mode", choices=VALID_TTS_MODES, default="voice-clone",
+        sub.add_argument("--tts-mode", choices=VALID_TTS_MODES, default=DEFAULT_TTS_MODE,
                          help="Synthesis mode: voice-clone (default, audio_to_audio_plus + reference) or text-to-audio (legacy)")
         sub.add_argument("--reference-audio", default=None,
                          help="Path to voice-clone reference audio (default: project example-audio.mp3)")

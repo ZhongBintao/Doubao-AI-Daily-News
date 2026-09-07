@@ -40,11 +40,11 @@ class SelectionTests(unittest.TestCase):
         }
         result = select_items_by_dimension(by_dimension)
         self.assertEqual(result.mode, "normal")
-        self.assertEqual(len(result.items), 7)
+        self.assertEqual(len(result.items), 8)
         self.assertEqual(result.selection_metadata["fixture-model-01"]["rank"], 1)
         self.assertEqual(result.selection_metadata["fixture-model-01"]["dimension"], "ai-models")
         self.assertEqual(result.selection_metadata["fixture-model-01"]["links"]["aihot"], "https://aihot.virxact.com/items/fixture-model-01")
-        self.assertNotIn("fixture-tip-01", result.selection_metadata)
+        self.assertIn("fixture-tip-01", result.selection_metadata)
 
     def test_null_scores_are_eligible_and_ties_keep_api_order(self):
         response = load_fixture(FIXTURE)

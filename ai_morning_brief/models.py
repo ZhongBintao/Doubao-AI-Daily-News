@@ -87,6 +87,7 @@ class SelectionResult:
     reason: str | None = None
     selection_metadata: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     policy: Mapping[str, Any] = field(default_factory=dict)
+    provenance: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

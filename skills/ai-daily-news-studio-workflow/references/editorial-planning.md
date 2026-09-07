@@ -2,13 +2,21 @@
 
 ## Source selection metadata
 
-The runtime freezes four independent AIHOT requests with
-`mode=selected&window=24h&by=timeline` and categories `ai-models`,
-`ai-products`, `industry`, and `paper`. `window=24h` is rolling from request
-time. The candidate report preserves each item's raw `score`, both links,
-dimension-local `rank`, `rank_percentile`, `tier`, and decision reason. A score
-is never a cross-dimension threshold and missing scores remain eligible.
-Video cards and narration must not display these metadata fields.
+The runtime freezes an AIHOT request with
+`mode=selected&window=24h&by=timeline` and accepts every returned category,
+including `ai-models`, `tip`, `ai-products`, `industry`, `paper`, `other`, and
+future category slugs. `window=24h` is rolling from request time. When that
+pool is empty or ineligible, it freezes a second selected `window=7d` request,
+excludes item IDs used by passing editions in the preceding seven days, and
+keeps at most three unseen items. The source snapshot records both attempts,
+the effective window, fallback reason, and excluded IDs. If no unseen fallback
+item remains, the input uses `selection.mode=no-news` and contains no source
+items; this is a valid status edition, not a failed plan.
+
+The candidate report preserves each item's raw `score`, both links,
+category-local `rank`, `rank_percentile`, `tier`, and decision reason. A score
+is never a cross-category threshold and missing scores remain eligible. Video
+cards and narration must not display these metadata fields.
 
 `editorial_input.json`（含冻结 source details）是唯一事实源。每条入选资讯恰好
 出现一次，所有显示文案和播音文案都可追溯到 exact claims。

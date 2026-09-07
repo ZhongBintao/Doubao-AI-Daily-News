@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -39,6 +40,16 @@ _TRANSIENT_PROVIDER_MARKERS = (
     "http 503",
     "http 504",
 )
+
+
+def _file_sha256(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _retryable_provider_result(result: Any) -> bool:
@@ -402,9 +413,32 @@ def reuse_synthesized_audio(
     for segment in script.get("segments", []):
         segment_id = str(segment.get("id"))
         entry = by_id.get(segment_id)
-        audio_path = project_dir / "assets" / "audio" / f"narration-{segment_id}.wav"
+        standard_audio_path = project_dir / "assets" / "audio" / f"narration-{segment_id}.wav"
+        declared_audio_path = standard_audio_path
+        if entry and entry.get("audio_path"):
+            declared_audio_path = Path(str(entry["audio_path"]))
+            if not declared_audio_path.is_absolute():
+                declared_audio_path = project_dir / declared_audio_path
+        audio_path = declared_audio_path.resolve()
+        project_root = project_dir.resolve()
+        if audio_path != project_root and project_root not in audio_path.parents:
+            raise OpenMontageError(f"reusable audio path escapes the edition directory for {segment_id}")
         if entry is None or not audio_path.is_file() or audio_path.stat().st_size == 0:
             raise OpenMontageError(f"reusable audio is incomplete for {segment_id}")
+        script_spoken = str(segment.get("spoken_text") or segment.get("display_text") or segment.get("broadcast_text") or "")
+        manifest_spoken = str(entry.get("spoken_text") or "")
+        if manifest_spoken and manifest_spoken != script_spoken:
+            raise OpenMontageError(f"reusable audio manifest text is stale for {segment_id}")
+        expected_hash = str(entry.get("sha256") or "")
+        if expected_hash and _file_sha256(audio_path) != expected_hash:
+            raise OpenMontageError(f"reusable audio hash mismatch for {segment_id}")
+        # The media mixer intentionally consumes the canonical narration-<id>
+        # paths. External Doubao handoffs may declare another in-run path, so
+        # materialize a verified copy at the canonical path before mixing.
+        if audio_path != standard_audio_path.resolve():
+            standard_audio_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(audio_path, standard_audio_path)
+            audio_path = standard_audio_path
         if align and provider_name not in {"gemini", "doubao", "doubao-voice-clone"}:
             alignment_path = project_dir / "artifacts" / "alignments" / f"{segment_id}.json"
             if not alignment_path.is_file() or alignment_path.stat().st_size == 0:

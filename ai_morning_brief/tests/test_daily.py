@@ -287,6 +287,26 @@ class TestRunDailyOffline(unittest.TestCase):
         for name in STAGES:
             self.assertEqual(_stage_status(state, name), "pending")
 
+    def test_fetch_accepts_no_news_and_uses_custom_output_root(self):
+        run_date = date(2026, 9, 6)
+        run_dir = self.output_root / run_date.isoformat()
+        run_dir.mkdir(parents=True)
+        state = load_state(run_dir)
+        report = {
+            "status": "prepared",
+            "details": {
+                "selection": {
+                    "status": "no-news",
+                    "selected_count": 0,
+                    "eligible_count": 0,
+                }
+            },
+        }
+        with mock.patch("ai_morning_brief.pipeline.run_pipeline", return_value=report) as run_pipeline:
+            daily.run_fetch(run_dir, state, run_date)
+        self.assertEqual(_stage_status(state, "fetch"), "done")
+        self.assertEqual(run_pipeline.call_args.kwargs["output_root"], self.output_root)
+
     def test_from_stage_resets_range(self):
         self._mock_all_runners()
         # First full run.
