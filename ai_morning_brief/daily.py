@@ -360,7 +360,13 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
     write_json(artifacts_dir / "editorial_plan_final.json", plan)
 
     # 2. Build selection object (lightweight shim matching the pipeline's shape).
-    source_items = {item["item_id"]: SourceItem.from_mapping(item) for item in editorial_input.get("items", [])}
+    source_items: dict[str, SourceItem] = {}
+    for item in editorial_input.get("items", []):
+        if not isinstance(item, Mapping):
+            continue
+        item_id = str(item.get("id") or item.get("item_id") or "").strip()
+        if item_id:
+            source_items[item_id] = SourceItem.from_mapping(item)
     selection_data = editorial_input.get("selection") or {}
     selection_items = tuple(source_items[item_id] for item_id in selection_data.get("item_ids", []) if item_id in source_items)
 
@@ -530,8 +536,14 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     expected = ["16x9.png", "3x4.png", "9x16.png"]
     existing = [f for f in expected if (covers_dir / f).is_file() and (covers_dir / f).stat().st_size > 0]
     if len(existing) == 3:
+        # release_workflow requires a schema-5 cover manifest. The handoff
+        # only produces PNGs, so materialize the manifest before release.
+        _ensure_cover_manifest(covers_dir)
         _set_stage(state, "cover", status="done", finished_at=_now().isoformat(),
-                    artifacts={"covers": [str(covers_dir / f) for f in expected]})
+                    artifacts={
+                        "covers": [str(covers_dir / f) for f in expected],
+                        "cover_manifest": str(covers_dir / "cover_manifest.json"),
+                    })
         return False
 
     # Try to generate cover_request.json via cover_workflow.py prepare.
@@ -604,6 +616,30 @@ def run_cover_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     return True
 
 
+def _ensure_cover_manifest(covers_dir: Path) -> None:
+    """Create the schema-5 cover manifest after the three images exist."""
+
+    manifest = covers_dir / "cover_manifest.json"
+    if manifest.is_file() and manifest.stat().st_size > 0:
+        return
+    cover_script = REPO_ROOT / "skills" / "ai-brief-cover-generator" / "scripts" / "cover_workflow.py"
+    request = covers_dir / "cover_request.json"
+    if not (cover_script.is_file() and request.is_file()):
+        print("  [WARN] cannot build cover manifest: cover_workflow.py or cover_request.json missing", file=sys.stderr)
+        return
+    cmd = [
+        sys.executable, str(cover_script), "record",
+        "--request", str(request),
+        "--image", f"16:9={covers_dir / '16x9.png'}",
+        "--image", f"3:4={covers_dir / '3x4.png'}",
+        "--image", f"9:16={covers_dir / '9x16.png'}",
+        "--force",
+    ]
+    result = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60, check=False)
+    if result.returncode != 0:
+        print(f"  [WARN] cover_workflow record failed: {(result.stderr or '')[-300:]}", file=sys.stderr)
+
+
 def _extract_prompt(ratios: Any, key: str) -> str:
     """Extract the seedream_prompt from a cover request ratios structure."""
     if not isinstance(ratios, Mapping):
@@ -661,7 +697,7 @@ def run_release(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
             if title:
                 desc_parts.append(title)
         description = "；".join(desc_parts) if desc_parts else f"AI每日早报{run_date.isoformat()}"
-        primary_item_id = str(items[0].get("item_id", "")) if items else ""
+        primary_item_id = str(items[0].get("id") or items[0].get("item_id") or "") if items else ""
 
         cmd = [
             sys.executable, str(release_script), "prepare",
