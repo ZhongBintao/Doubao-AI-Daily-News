@@ -242,7 +242,10 @@ def generate_tts_manifest(
             "For each segment below, call the Doubao audio_to_audio_plus tool with "
             "@音频1 = the reference audio file, then save the returned WAV to the exact "
             "output_path. Prompt: '用参考音频的音色、语速和朗读风格，清晰朗读以下文字，"
-            "不增删字词，无背景音无杂音：{spoken_text}'. After all segments are done, "
+            "不增删字词，无背景音无杂音：{spoken_text}'. The text is the raw authored "
+            "sentence: keep English acronyms (GPU, RSA-260), model codes and Arabic "
+            "numerals exactly as written — the voice model reads them correctly and "
+            "the local ASR quality gate verifies the result. After all segments are done, "
             "re-run the daily orchestrator (or run 'doubao_tts_adapter finalize')."
         )
     else:
@@ -265,11 +268,18 @@ def generate_tts_manifest(
         "voice": voice_label,
         "reference_audio": reference_info,
         "instructions": instructions,
+        "speech_contract": {
+            "canonical_text": "display_text",
+            "spoken_equals_display": True,
+            "normalization_version": "3.0",
+            "note": "spoken_text is the raw authored display text; pronunciation faults are caught post-synthesis by speech_qa, not by input rewriting",
+        },
         "segment_count": len(entries),
         "segments": [
             {
                 "segment_id": entry["segment_id"],
                 "kind": entry["kind"],
+                "display_text": entry["display_text"],
                 "spoken_text": entry["spoken_text"],
                 "output_path": str(_audio_path(run_dir, entry["segment_id"])),
                 "char_count": len(entry["spoken_text"]),
@@ -402,6 +412,9 @@ def verify_and_finalize(
             "spoken_text": entry["spoken_text"],
             "native_word_boundary": False,
             "sha256": _file_sha256(raw_path),
+            # Speech-QA bookkeeping (attempt count, colloquial override) is
+            # forwarded so the render-time gate can audit the reused audio.
+            **({"qa": dict(declared["qa"])} if isinstance(declared.get("qa"), Mapping) else {}),
         })
 
     manifest = {

@@ -749,6 +749,112 @@ def _phrase_cues(text: str, words: list[Mapping[str, Any]], offset: float, durat
     return cues
 
 
+def _asr_caption_unit_cues(
+    units: list[Mapping[str, Any]],
+    alignment_data: Mapping[str, Any],
+    offset: float,
+    duration: float,
+) -> list[dict[str, Any]] | None:
+    """Time authored caption units with real ASR word timestamps.
+
+    ``alignment_data`` comes from a ``speech_qa`` alignment file: the raw
+    whisper transcript plus per-word start/end times.  Caption text always
+    stays the authored ``display_text`` — ASR only contributes *when* each
+    span was spoken.  Units are located in the normalized transcript in
+    order; unmatched units interpolate between their matched neighbours and
+    a fully unmatched segment falls back to proportional timing (returns
+    None so the caller can use the generic path).
+    """
+
+    transcript = str(alignment_data.get("asr_transcript") or "")
+    words = [word for word in (alignment_data.get("word_timestamps") or []) if isinstance(word, Mapping)]
+    clean_units = [unit for unit in units if str(unit.get("display_text") or "").strip()]
+    if not clean_units or not transcript or not words:
+        return None
+
+    from . import asr_match
+
+    normalized_transcript = asr_match.normalize_for_match(transcript)
+    if not normalized_transcript:
+        return None
+    word_spans = asr_match.locate_words_in_normalized(words, normalized_transcript)
+    timed_words: list[tuple[int, int, float, float]] = []
+    for word, (start_pos, end_pos) in zip(words, word_spans):
+        if start_pos < 0:
+            continue
+        try:
+            start = float(word.get("start", word.get("start_seconds", 0.0)))
+            end = float(word.get("end", word.get("end_seconds", start)))
+        except (TypeError, ValueError):
+            continue
+        end = max(end, start + 0.04)
+        timed_words.append((start_pos, end_pos, max(0.0, start), min(duration, end)))
+    timed_words.sort()
+    if not timed_words:
+        return None
+
+    def span_time(span: tuple[int, int]) -> tuple[float, float] | None:
+        inside = [entry for entry in timed_words if entry[0] < span[1] and entry[1] > span[0]]
+        if not inside:
+            return None
+        return min(entry[2] for entry in inside), max(entry[3] for entry in inside)
+
+    unit_spans = asr_match.match_units_in_transcript(
+        [str(unit.get("display_text") or "") for unit in clean_units],
+        normalized_transcript,
+    )
+    resolved = [span_time(span) if span else None for span in unit_spans]
+    if all(entry is None for entry in resolved):
+        return None
+
+    weights = [max(1, len(asr_match.normalize_for_match(str(unit.get("display_text") or "")))) for unit in clean_units]
+
+    # Interpolate unmatched units between their resolved neighbours, splitting
+    # the gap proportionally to each unmatched unit's text weight.
+    lower = 0
+    while lower < len(clean_units):
+        if resolved[lower] is not None:
+            lower += 1
+            continue
+        upper = lower
+        while upper < len(clean_units) and resolved[upper] is None:
+            upper += 1
+        gap_start = resolved[lower - 1][1] if lower > 0 else 0.0
+        gap_end = resolved[upper][0] if upper < len(clean_units) else duration
+        if gap_end <= gap_start:
+            # Degenerate gap (e.g. neighbours touch): still give the unmatched
+            # units a minimum readable window inside the segment duration.
+            gap_start = min(gap_start, max(0.0, duration - 0.04 * (upper - lower)))
+            gap_end = min(duration, gap_start + 0.2 * (upper - lower))
+        total_gap_weight = max(1, sum(weights[lower:upper]))
+        cursor_time = gap_start
+        for offset_index in range(lower, upper):
+            share = (gap_end - gap_start) * weights[offset_index] / total_gap_weight
+            start = cursor_time
+            end = min(gap_end, max(start + 0.04, cursor_time + share))
+            resolved[offset_index] = (start, end)
+            cursor_time = end
+        lower = upper
+
+    cues: list[dict[str, Any]] = []
+    previous_end = 0.0
+    for unit, entry in zip(clean_units, resolved):
+        assert entry is not None
+        start = max(previous_end, max(0.0, min(duration, entry[0])))
+        end = min(duration, max(start + 0.04, entry[1]))
+        cues.append({
+            "start": offset + start,
+            "end": offset + end,
+            "text": str(unit.get("display_text") or "").strip(),
+            "card_ids": [str(value) for value in unit.get("card_ids") or []],
+            "beat_id": str(unit.get("beat_id") or ""),
+            "claim_ids": [str(value) for value in unit.get("claim_ids") or []],
+            "visual_asset_id": str(unit.get("visual_asset_id") or ""),
+        })
+        previous_end = end
+    return cues
+
+
 def _caption_unit_cues(
     units: list[Mapping[str, Any]],
     words: list[Mapping[str, Any]],
@@ -834,15 +940,24 @@ def write_subtitles(project_dir: Path, script: Mapping[str, Any], durations: Map
         speech_duration = float((spoken_durations or {}).get(segment_id, duration))
         speech_duration = max(0.05, min(duration, speech_duration))
         words: list[Mapping[str, Any]] = []
+        alignment_data: dict[str, Any] = {}
         if aligned:
             if not alignment_path.is_file():
                 raise MediaError(f"subtitle alignment is required for {segment_id}: {alignment_path}")
-            data = json.loads(alignment_path.read_text(encoding="utf-8"))
-            words = list(data.get("word_timestamps") or [])
+            alignment_data = json.loads(alignment_path.read_text(encoding="utf-8"))
+            words = list(alignment_data.get("word_timestamps") or [])
             if not words:
                 raise MediaError(f"subtitle alignment has no word timestamps for {segment_id}: {alignment_path}")
         caption_units = segment.get("caption_units") or []
-        if isinstance(caption_units, list) and caption_units:
+        if isinstance(caption_units, list) and caption_units and aligned and alignment_data.get("asr_transcript"):
+            # speech_qa measured the real word times for this block; captions
+            # keep the authored display text and only borrow the timing.
+            asr_cues = _asr_caption_unit_cues(caption_units, alignment_data, cursor, speech_duration)
+            if asr_cues is not None:
+                cues.extend(asr_cues)
+            else:
+                cues.extend(_caption_unit_cues(caption_units, words, cursor, speech_duration))
+        elif isinstance(caption_units, list) and caption_units:
             cues.extend(_caption_unit_cues(caption_units, words, cursor, speech_duration))
         elif aligned:
             cues.extend(_phrase_cues(text, words, cursor, speech_duration))

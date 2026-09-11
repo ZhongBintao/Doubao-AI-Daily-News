@@ -451,13 +451,42 @@ def reuse_synthesized_audio(
     audio_events = _audio_events(script, durations, audio_assets)
     music_boundaries = _music_boundaries(script, durations)
     final_mix = mix_audio(project_dir, narration, audio_assets, audio_events, music_boundaries)
-    subtitle_aligned = bool(align and provider_name not in {"gemini", "doubao", "doubao-voice-clone"})
+    # Speech QA gate: the edition may only render once every voice block has
+    # been verified by the local ASR listener.  A passed report for unchanged
+    # audio is reused; changed/failed audio is re-checked here; a block that
+    # exhausted its retry budget aborts the render.
+    speech_qa_status = "not_run"
+    try:
+        from .speech_qa import SpeechQABlocked, ensure_speech_qa
+
+        qa_report = ensure_speech_qa(project_dir)
+        speech_qa_status = str(qa_report.get("status") or "unknown")
+        qa_engine = qa_report.get("engine")
+    except SpeechQABlocked as exc:
+        raise OpenMontageError(str(exc)) from exc
+    except (ImportError, FileNotFoundError, ValueError, RuntimeError) as exc:
+        # A broken QA setup must not silently pass: record it and keep the
+        # legacy proportional timing so the failure is visible in the report.
+        speech_qa_status = f"error: {str(exc)[:200]}"
+        qa_engine = None
+    # Captions use ASR-measured word timestamps when the gate produced them
+    # (alignment_provider asr-local); otherwise the deterministic proportional
+    # fallback applies exactly as before.
+    subtitle_aligned = bool(
+        align
+        and (
+            provider_name not in {"gemini", "doubao", "doubao-voice-clone"}
+            or speech_qa_status == "passed"
+        )
+    )
     subtitle_path, cues = write_subtitles(project_dir, script, durations, aligned=subtitle_aligned, spoken_durations=spoken_durations)
     subtitle_alignment = _subtitle_alignment_report(
         [entry for entry in manifest_data.get("segments", []) if isinstance(entry, Mapping)],
         provider=provider_name,
         aligned=subtitle_aligned,
     )
+    subtitle_alignment["speech_qa_status"] = speech_qa_status
+    subtitle_alignment["speech_qa_engine"] = qa_engine
     return {
         "durations": durations,
         "final_mix": final_mix,

@@ -431,14 +431,35 @@ def run_voice_clone_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     ref = manifest.get("reference_audio") or {}
     ref_path = str(ref.get("path") or DEFAULT_VOICE_CLONE_REFERENCE_AUDIO)
 
+    # Speech-QA retry: when the ASR gate flagged specific blocks, the handoff
+    # narrows to exactly those segments and uses the colloquial override for
+    # the final attempt. Everything already passed is left untouched.
+    qa_state = _read_json(run_dir / "artifacts" / "speech_qa_state.json") or {}
+    redo_ids = {
+        segment_id for segment_id, entry in qa_state.items()
+        if isinstance(entry, Mapping) and entry.get("status") == "needs_resynthesis"
+    }
+    overrides = _read_json(run_dir / "artifacts" / "speech_qa" / "colloquial_overrides.json") or {}
+    targeted = [s for s in segments if str(s.get("segment_id")) in redo_ids] if redo_ids else segments
+
     seg_list = "\n".join(
         f"    {i+1}. {s['segment_id']:12s} ({s['char_count']:3d}字) -> {s['output_path']}"
-        for i, s in enumerate(segments)
+        for i, s in enumerate(targeted)
     )
     missing_str = ", ".join(missing) if missing else "（首次合成）"
+    retry_note = (
+        "  ⚠ 本次为语音 QA 重试轮：只重合成上面列出的段落，其余已通过的音频不要改动。\n"
+        if redo_ids else ""
+    )
+    override_note = (
+        "  部分段落有一次性口语改写文本（屏幕字幕不变），朗读时以 manifest 中\n"
+        "  segment.qa.spoken_override 为准；没有标注的段落照常朗读 spoken_text 原文。\n"
+        if any(str(s.get("segment_id")) in overrides for s in targeted) else ""
+    )
 
     instructions = (
-        f"  请完成语音克隆合成（共 {len(segments)} 段，缺失: {missing_str}）：\n"
+        f"  请完成语音克隆合成（共 {len(targeted)} 段，缺失: {missing_str}）：\n"
+        f"{retry_note}{override_note}"
         f"  参考音频: {ref_path}\n"
         f"  工具: audio_to_audio_plus\n"
         f"  对每一段执行：\n"
@@ -446,7 +467,9 @@ def run_voice_clone_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
         f"    2. prompt: \"用参考音频的音色、语速和朗读风格，清晰朗读以下文字，不增删字词，无背景音无杂音：{{spoken_text}}\"\n"
         f"    3. 将返回的音频保存到 output_path\n"
         f"  段落清单：\n{seg_list}\n"
-        f"  注意: 必须严格使用 spoken_text 原文，不增删字词；每段单独合成"
+        f"  注意: 朗读文本 = segment.qa.spoken_override（若存在）否则 spoken_text；\n"
+        f"  两者都是屏幕原文（含英文缩写、型号、阿拉伯数字，直接照读即可）；\n"
+        f"  不增删字词；每段单独合成。"
     )
     _print_handoff("voice_clone", run_dir, instructions)
     return True
@@ -475,6 +498,20 @@ def run_render(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
 
     # 2. Finalize audio (normalize + manifest).
     verify_and_finalize(run_dir, tts_mode=DEFAULT_TTS_MODE)
+
+    # 2.5 Speech-QA gate: blocks that failed the local ASR check after all
+    # retries must never reach the renderer.
+    qa_state = _read_json(run_dir / "artifacts" / "speech_qa_state.json") or {}
+    blocked = [
+        str(segment_id) for segment_id, entry in qa_state.items()
+        if isinstance(entry, Mapping) and entry.get("status") == "blocked"
+    ]
+    if blocked:
+        raise RuntimeError(
+            f"语音 QA 未通过（已用尽 3 次合成尝试）: {', '.join(blocked)}。"
+            f"请查看 {run_dir / 'artifacts' / 'speech_qa_report.json'} 中的转写与判定，"
+            "修复后删除对应段的 speech_qa_state 记录并重新合成。"
+        )
 
     # 3. Run full pipeline render with audio reuse.
     report = run_pipeline(

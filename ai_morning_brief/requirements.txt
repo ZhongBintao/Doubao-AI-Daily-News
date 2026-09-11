@@ -3,3 +3,11 @@
 # separate from the protected root/PDF requirements file.
 azure-cognitiveservices-speech>=1.40.0
 google-genai>=1.0.0
+
+# Speech QA gate (speech_qa.py) needs ONE local ASR engine; none ships with
+# the pipeline itself. Install either of the following (Apple Silicon users
+# should prefer mlx-whisper) or set AI_BRIEF_ASR_ENGINE=none to disable the
+# gate. whisper.cpp CLI users must point AI_BRIEF_WHISPER_CPP_MODEL at a
+# local ggml model file instead.
+# mlx-whisper>=0.2.0
+# faster-whisper>=1.0.0

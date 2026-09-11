@@ -6,7 +6,16 @@ The renderer intentionally does not call a language model.  A Codex writing
 skill authors or reviews ``editorial_plan.json`` against the frozen AIHOT
 input, while this module provides the repeatable, machine-checkable part of
 the hand-off: richer draft scaffolding, display/spoken text separation, and a
-pronunciation ledger for Azure (and future providers).
+pronunciation ledger.
+
+Speech model (v3.0): modern in-conversation voice cloning (Doubao
+``audio_to_audio_plus``) already reads English acronyms, model codes and
+Arabic numerals correctly from context.  Pre-expanding them deterministically
+(ex ``GPU`` -> ``G P U``, ``RSA-260`` -> ``R S A 二百六十``) produced stilted,
+partly skipped narration and desynced captions.  ``spoken_text`` is therefore
+kept identical to the canonical ``display_text``; TTS input is raw text.
+Post-synthesis quality is enforced downstream by the local ASR gate in
+``ai_morning_brief.speech_qa`` instead of by input rewriting.
 """
 
 import copy
@@ -21,7 +30,10 @@ from typing import Any, Mapping
 
 WRITER_VERSION = "4.1"
 WRITER_PROMPT_VERSION = "codex-news-writer-v4.1"
-SPEECH_NORMALIZATION_VERSION = "2.0"
+# v3.0: spoken_text is no longer a rewritten variant of display_text. The
+# voice-clone provider reads raw text correctly, and the ASR quality gate
+# (speech_qa) catches real synthesis faults after the fact.
+SPEECH_NORMALIZATION_VERSION = "3.0"
 CAPTION_MAX_VISIBLE_UNITS = 28
 CAPTION_MIN_STORIES = 3
 
@@ -49,45 +61,6 @@ class SpeechNormalization:
 
 _NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d[\d,，]*(?:\.\d+)?")
 _GROUPED_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])(?P<number>\d{1,3}(?:[,，]\d{3})+)(?!\d)")
-_RATE_RE = re.compile(r"(?<![A-Za-z0-9])(?P<number>\d[\d,，]*(?:\.\d+)?)\s*(?P<unit>tokens?|token)\s*/\s*s\b", re.IGNORECASE)
-_BYTE_RE = re.compile(r"(?<![A-Za-z0-9])(?P<number>\d[\d,，]*(?:\.\d+)?)\s*(?P<unit>Gi?B|Mi?B|Ki?B|Ti?B|GB|MB|KB|TB)\b", re.IGNORECASE)
-_BILLION_RE = re.compile(r"(?<![A-Za-z0-9])(?P<number>\d+(?:\.\d+)?)\s*(?P<unit>bn|billion|B)\b")
-_MILLION_RE = re.compile(r"(?<![A-Za-z0-9])(?P<number>\d+(?:\.\d+)?)\s*(?P<unit>mn|million|M)\b")
-_THOUSAND_RE = re.compile(r"(?<![A-Za-z0-9])(?P<number>\d+(?:\.\d+)?)\s*(?P<unit>K|k)\b")
-_NUMBER_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])(?P<number>\d[\d,，]*(?:\.\d+)?)\s*(?P<unit>tokens?|token)\b", re.IGNORECASE)
-_PLAIN_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])(?P<number>\d[\d,，]*(?:\.\d+)?)(?![A-Za-z0-9])")
-_COUNT_RE = re.compile(
-    r"(?<![A-Za-z0-9])(?P<number>\d[\d,，]*(?:\.\d+)?)\s*(?P<unit>位|项|名|个|家|页|类|条|种|款|倍|分钟|分|秒|月|日|年|%|％|亿美元|美元|亿元|万元)(?![A-Za-z])"
-)
-_QUANTIZED_RE = re.compile(r"(?<![A-Za-z0-9])(?P<letters>[A-Za-z])(?P<number>\d+)(?P<tail>(?:_[A-Za-z0-9]+)+)\b")
-_CODE_RE = re.compile(r"(?<![A-Za-z0-9])(?P<code>[A-Z]{2,6}(?:[-_][A-Z0-9]{1,8})+)\b")
-_MODEL_VERSION_RE = re.compile(r"(?<![A-Za-z0-9])(?P<name>[A-Za-z]{2,})-(?P<number>\d+(?:\.\d+)?)(?P<suffix>[A-Za-z]*)\b")
-_MIXED_VERSION_RE = re.compile(r"(?<![A-Za-z0-9])(?P<name>[A-Za-z]{2,})(?P<number>\d+(?:\.\d+)?)(?![A-Za-z0-9])")
-_LOCALE_RE = re.compile(r"(?<![A-Za-z])(?P<language>[a-z]{2})-(?P<region>[A-Z]{2})(?![A-Za-z])")
-_ACRONYM_RE = re.compile(r"(?<![A-Za-z])(?P<acronym>[A-Z]{2,5})(?![A-Za-z])")
-
-_ZH_DIGITS = "零一二三四五六七八九"
-_ZH_SMALL_UNITS = ("", "十", "百", "千")
-_ZH_GROUP_UNITS = ("", "万", "亿", "兆")
-
-# Terms which should remain recognizable to a bilingual audience.  They are
-# surrounded with spaces when spoken so Azure reads the letters separately
-# rather than guessing a word (for example ``ASR`` as one syllable).
-_KEEP_AS_WORD = {
-    "AI",
-    "API",
-    "Azure",
-    "Gemini",
-    "Google",
-    "Mac",
-    "OpenAI",
-    "OpenMontage",
-    "Ollama",
-    "Qwen",
-    "Studio",
-    "token",
-    "tokens",
-}
 
 
 def _clean(text: Any) -> str:
@@ -178,244 +151,39 @@ def split_caption_units(text: Any, maximum: int = CAPTION_MAX_VISIBLE_UNITS) -> 
     return [unit for unit in units if unit.strip()]
 
 
-def _number_to_zh_integer(value: int) -> str:
-    if value == 0:
-        return _ZH_DIGITS[0]
-    if value < 0:
-        return "负" + _number_to_zh_integer(-value)
-    groups: list[int] = []
-    while value:
-        groups.append(value % 10000)
-        value //= 10000
-    output: list[str] = []
-    pending_zero = False
-    for group_index in range(len(groups) - 1, -1, -1):
-        group = groups[group_index]
-        if group == 0:
-            if output:
-                pending_zero = True
-            continue
-        if output and (pending_zero or group < 1000):
-            if output[-1] != _ZH_DIGITS[0]:
-                output.append(_ZH_DIGITS[0])
-        pending_zero = False
-        digits: list[str] = []
-        divisor = 1000
-        started = False
-        for unit_index in range(3, -1, -1):
-            digit = (group // divisor) % 10
-            divisor //= 10
-            if digit:
-                digits.append(_ZH_DIGITS[digit] + _ZH_SMALL_UNITS[unit_index])
-                started = True
-            elif started and any((group // (10 ** power)) % 10 for power in range(unit_index)):
-                if not digits or digits[-1] != _ZH_DIGITS[0]:
-                    digits.append(_ZH_DIGITS[0])
-        while digits and digits[-1] == _ZH_DIGITS[0]:
-            digits.pop()
-        output.extend(digits)
-        output.append(_ZH_GROUP_UNITS[group_index])
-    result = "".join(output).replace("零零", "零")
-    if result.startswith("一十"):
-        result = result[1:]
-    return result.rstrip("零") or _ZH_DIGITS[0]
-
-
-def _number_to_zh(value: str) -> str:
-    raw = str(value).replace(",", "").replace("，", "").strip()
-    if "." not in raw:
-        try:
-            return _number_to_zh_integer(int(raw))
-        except ValueError:
-            return raw
-    whole, decimal = raw.split(".", 1)
-    try:
-        whole_text = _number_to_zh_integer(int(whole))
-    except ValueError:
-        whole_text = whole
-    return whole_text + "点" + "".join(_ZH_DIGITS[int(char)] if char.isdigit() else char for char in decimal)
-
-
-def _scaled_financial_number(value: str, multiplier: int) -> str:
-    """Read a B/M/K suffix in Chinese without losing its magnitude."""
-
-    raw = str(value).replace(",", "")
-    try:
-        if "." in raw:
-            scaled = float(raw) * multiplier
-            if scaled.is_integer():
-                return _number_to_zh_integer(int(scaled))
-            # Keep a decimal only when the scaled value cannot be represented
-            # as an integer (e.g. 0.5B -> 五亿 is still exact).
-            return _number_to_zh(str(scaled))
-        return _number_to_zh_integer(int(raw) * multiplier)
-    except (TypeError, ValueError):
-        return raw
-
-
-def _replace_with_ledger(text: str, pattern: re.Pattern[str], callback: Any, rewrites: list[dict[str, Any]], kind: str) -> str:
-    def replacement(match: re.Match[str]) -> str:
-        source = match.group(0)
-        spoken = str(callback(match))
-        if source != spoken:
-            rewrites.append({"source": source, "spoken": spoken, "kind": kind, "start": match.start(), "end": match.end()})
-        return spoken
-
-    return pattern.sub(replacement, text)
-
-
 def normalize_spoken_text(text: str) -> str:
-    """Return a pronunciation-safe Mandarin variant of authored display text.
+    """Return the narration-safe spoken form of authored display text.
 
-    The function is deliberately conservative: it rewrites only patterns with
-    a known pronunciation hazard and leaves ordinary Chinese prose untouched.
+    Since SPEECH_NORMALIZATION_VERSION 3.0 the spoken form is the canonical
+    display text itself: the voice-clone provider reads acronyms, model codes
+    and Arabic numerals correctly from context, and deterministic expansion
+    (``GPU`` -> ``G P U``) only degraded narration.  The function is kept as
+    the single normalization entry point so callers never bypass canonical
+    spacing/number-separator cleanup.
     """
 
     return normalize_with_ledger(text).spoken_text
 
 
 def normalize_with_ledger(text: str) -> SpeechNormalization:
+    """Canonicalize authored text and return its TTS input form.
+
+    ``display_text`` is the reviewed on-screen copy (grouped number
+    separators removed).  ``spoken_text`` equals ``display_text``: TTS input
+    is the raw authored text and any real pronunciation fault is caught after
+    synthesis by the local ASR quality gate (``ai_morning_brief.speech_qa``),
+    which retries the affected voice block instead of silently mangling every
+    acronym in the edition.
+    """
+
     raw_display = _clean(text)
     display = normalize_display_text(raw_display)
     if not display:
         return SpeechNormalization(display_text="", spoken_text="", rewrites=tuple(), warnings=("empty_text",))
-    spoken = display
-    rewrites: list[dict[str, Any]] = []
-
-    for match in _GROUPED_NUMBER_RE.finditer(raw_display):
-        source = match.group("number")
-        canonical = source.replace(",", "").replace("，", "")
-        rewrites.append(
-            {
-                "source": source,
-                "spoken": canonical,
-                "kind": "display_number_separator",
-                "start": match.start(),
-                "end": match.end(),
-            }
-        )
-
-    spoken = _replace_with_ledger(
-        spoken,
-        _RATE_RE,
-        lambda match: f"每秒{_number_to_zh(match.group('number'))}个 token",
-        rewrites,
-        "rate",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _BYTE_RE,
-        lambda match: f"{_number_to_zh(match.group('number'))}{ {'KB': '千字节', 'KIB': '千字节', 'MB': '兆字节', 'MIB': '兆字节', 'GB': '吉字节', 'GIB': '吉字节', 'TB': '太字节', 'TIB': '太字节'}.get(match.group('unit').upper(), match.group('unit')) }",
-        rewrites,
-        "storage_unit",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _BILLION_RE,
-        lambda match: _scaled_financial_number(match.group('number'), 1000000000),
-        rewrites,
-        "billion_unit",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _MILLION_RE,
-        lambda match: _scaled_financial_number(match.group('number'), 1000000),
-        rewrites,
-        "million_unit",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _THOUSAND_RE,
-        lambda match: _scaled_financial_number(match.group('number'), 1000),
-        rewrites,
-        "thousand_unit",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _NUMBER_TOKEN_RE,
-        lambda match: f"{_number_to_zh(match.group('number'))}个 token",
-        rewrites,
-        "token_count",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _COUNT_RE,
-        lambda match: (
-            f"百分之{_number_to_zh(match.group('number'))}"
-            if match.group("unit") in {"%", "％"}
-            else f"{_number_to_zh(match.group('number'))}{match.group('unit')}"
-        ),
-        rewrites,
-        "count_or_measure",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _MODEL_VERSION_RE,
-        lambda match: f"{match.group('name')} {_number_to_zh(match.group('number'))} " + " ".join(match.group('suffix')) if match.group('suffix') else f"{match.group('name')} {_number_to_zh(match.group('number'))}",
-        rewrites,
-        "hyphenated_model_version",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _MIXED_VERSION_RE,
-        lambda match: f"{match.group('name')} {_number_to_zh(match.group('number'))}",
-        rewrites,
-        "mixed_model_version",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _QUANTIZED_RE,
-        lambda match: f"{match.group('letters').upper()} {_number_to_zh(match.group('number'))} " + " ".join(match.group('tail').lstrip("_").split("_")),
-        rewrites,
-        "quantization_code",
-    )
-    # Break slash/underscore/hyphenated all-caps codes only after the specific
-    # rate and quantization rules above have had first refusal.
-    spoken = _replace_with_ledger(
-        spoken,
-        _CODE_RE,
-        lambda match: " ".join(re.split(r"[-_]", match.group('code'))),
-        rewrites,
-        "compound_code",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _LOCALE_RE,
-        lambda match: f"{match.group('language')} {match.group('region')}",
-        rewrites,
-        "locale_code",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        re.compile(r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]*)/([A-Za-z][A-Za-z0-9]*)\b"),
-        lambda match: f"{match.group(1)} 每 {match.group(2)}",
-        rewrites,
-        "slash_code",
-    )
-    spoken = _replace_with_ledger(
-        spoken,
-        _PLAIN_NUMBER_RE,
-        lambda match: _number_to_zh(match.group("number")),
-        rewrites,
-        "plain_number",
-    )
-
-    def acronym(match: re.Match[str]) -> str:
-        value = match.group("acronym")
-        if value in _KEEP_AS_WORD:
-            return value
-        return " ".join(value)
-
-    spoken = _replace_with_ledger(spoken, _ACRONYM_RE, acronym, rewrites, "acronym")
-    spoken = re.sub(r"\s+([，。！？；：,.!?;:])", r"\1", spoken)
-    spoken = re.sub(r"([，。！？；：,.!?;:]){2,}", r"\1", spoken)
-    spoken = _clean(spoken)
-    warnings: list[str] = []
-    if re.search(r"[A-Za-z0-9]_[A-Za-z0-9]", spoken):
-        warnings.append("underscore_remains")
-    if re.search(r"[A-Za-z0-9]/[A-Za-z0-9]", spoken):
-        warnings.append("slash_remains")
-    return SpeechNormalization(display_text=display, spoken_text=spoken, rewrites=tuple(rewrites), warnings=tuple(warnings))
+    # Underscore/slash codes (Q4_K_M, en-US, ...) are legitimate display copy:
+    # the voice-clone provider reads them from context and the ASR gate
+    # verifies the result, so they no longer warrant a review warning here.
+    return SpeechNormalization(display_text=display, spoken_text=display, rewrites=tuple(), warnings=tuple())
 
 
 def build_pronunciation_ledger(script: Mapping[str, Any]) -> dict[str, Any]:
@@ -481,7 +249,7 @@ def build_writing_request(editorial_input: Mapping[str, Any]) -> dict[str, Any]:
             "narration": "每条用具有稳定 beat_id 的 beat 完整解释具体事件和来源证据；不设置总字数、单 beat 字数、句数或视频时长上限。影响、行动、限制只在来源支持时写。beat 只绑定 claims，不为字幕宽度删减内容；字幕由下游按标点和画面宽度拆分。若有原文视觉，可按素材数量绑定一个或多个后置视觉 beat。",
             "cards": "卡片数量由有效 claim 和解释需要决定，不设固定上限；每张卡片有稳定 id、明确 subject 和独立信息职责。单页放不下时由渲染器自动分页，正文不得截断，metric 只在正文出现一次。",
             "grouping": "同一维度内，若多条资讯各自只有不超过两条独立支持 claim、正文短且不需要复杂时间线，可合并为一个 brief_group 场景；每组 2-4 条、每条恰好一张卡和一个 beat，共用一个顶部导航位。5-8 条必须拆成 3+2、3+3、4+3 或 4+4 等平衡分组，不能留下单条孤儿；维度头条/第一名和需要完整解释的故事保持 single。brief_group 必须填写 group_label、overview_items、card.source_item_id 和 beat.card_ids，且不展示评分或来源链接。",
-            "speech": "spoken_text 由 ai_morning_brief.writing.normalize_with_ledger 唯一生成，不手写、不添加事实；显示数字去掉千位分隔符（例如 4，888→4888），朗读数字、tokens/s、GB、B/M/K、下划线代码和全大写缩写使用明确读法。",
+            "speech": "spoken_text 由 ai_morning_brief.writing.normalize_with_ledger 唯一生成且恒等于 display_text（v3.0 起不再做朗读改写）；显示数字去掉千位分隔符（例如 4，888→4888）；英文缩写、型号代码和阿拉伯数字按原文书写，由语音模型直接朗读，读错由本地 ASR 质检（speech_qa）在合成后拦截。若某段落确实需要口语化表达，只能通过 speech_qa 的一次性口语改写（spoken_override）下发，屏幕 display_text 不变。",
             "grounding": "所有标题、卡片和 narration display 文案必须引用 exact source claims；不能补写来源未给出的数字、因果或预测，也不能逐字复制 AIHOT 标题或句子。",
         },
         "output_contract": {
@@ -674,9 +442,7 @@ def validate_spoken_text(script: Mapping[str, Any]) -> list[str]:
             continue
         normalized = normalize_with_ledger(display)
         if spoken != normalized.spoken_text:
-            errors.append(f"{segment_id} spoken_text is not normalized from display_text")
-        if re.search(r"(?<![A-Za-z0-9])[A-Za-z0-9]+[/_][A-Za-z0-9]", spoken):
-            errors.append(f"{segment_id} spoken_text retains a slash or underscore code")
+            errors.append(f"{segment_id} spoken_text is not the canonical display text")
     return errors
 
 

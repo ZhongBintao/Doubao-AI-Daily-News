@@ -715,7 +715,7 @@ def build_script_from_editorial_plan(
         "category_counts": selection.category_counts,
         "selection_reason": selection.reason,
         "editorial_policy": "Codex-authored factual beats and cards; every generated field is linked to exact AIHOT evidence",
-        "speech": {"version": "1.0", "canonical_text": "spoken_text", "provider_default": "azure"},
+        "speech": {"version": "3.0", "canonical_text": "display_text", "spoken_equals_display": True, "provider_default": "azure"},
         "editorial": {
             "plan_version": editorial_plan.get("version"),
             "prompt_version": editorial_plan.get("prompt_version"),

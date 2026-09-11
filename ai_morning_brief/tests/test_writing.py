@@ -36,20 +36,33 @@ class WritingTests(unittest.TestCase):
         selection = select_items(response.items)
         self.editorial_input = build_editorial_input(response.url, selection, run_date=date(2026, 8, 28))
 
-    def test_normalizer_rewrites_rate_storage_code_and_fullwidth_number(self):
+    def test_spoken_text_keeps_raw_acronyms_codes_and_numbers(self):
+        # v3.0: TTS input is the raw authored text.  The voice-clone provider
+        # reads acronyms/codes/numerals correctly and the ASR gate (speech_qa)
+        # catches real faults post-synthesis; deterministic expansion is gone.
         result = normalize_with_ledger("采用 Q4_K_M 量化（17GB），速度 14 tokens/s，窗口 262，144 token。")
-        self.assertIn("每秒十四个 token", result.spoken_text)
-        self.assertIn("十七吉字节", result.spoken_text)
-        self.assertIn("二十六万二千一百四十四个 token", result.spoken_text)
-        self.assertNotRegex(result.spoken_text, r"tokens?/s|Q4_K_M")
-        self.assertGreaterEqual(len(result.rewrites), 3)
+        self.assertEqual(result.spoken_text, result.display_text)
+        self.assertIn("Q4_K_M", result.spoken_text)
+        self.assertIn("17GB", result.spoken_text)
+        self.assertIn("14 tokens/s", result.spoken_text)
+        # Grouped separators are canonicalized away in display copy (4，888 ->
+        # 4888), which spoken text inherits verbatim.
+        self.assertIn("262144 token", result.spoken_text)
+        self.assertEqual(result.rewrites, ())
+
+    def test_gpu_and_rsa_are_not_letter_split(self):
+        for text in ("GPU 集群参数亮眼。", "RSA-260 是伪造签名难度的估计。", "KV 缓存翻倍。"):
+            result = normalize_with_ledger(text)
+            self.assertEqual(result.spoken_text, result.display_text)
+            self.assertNotIn("G P U", result.spoken_text)
+            self.assertNotIn("R S A", result.spoken_text)
 
     def test_grouped_chinese_number_has_stable_display_and_spoken_forms(self):
         result = normalize_with_ledger("数据集包含 4，888 位说话人和 12 项属性。")
         self.assertEqual(result.display_text, "数据集包含 4888 位说话人和 12 项属性。")
-        self.assertIn("四千八百八十八位", result.spoken_text)
+        self.assertEqual(result.spoken_text, result.display_text)
         self.assertNotIn("4，888", result.spoken_text)
-        self.assertIn("四千八百八十八", normalize_with_ledger("数量为 4,888。").spoken_text)
+        self.assertIn("4888", normalize_with_ledger("数量为 4,888。").spoken_text)
         self.assertEqual(split_caption_sentences("第一句。第二句。"), ["第一句。", "第二句。"])
 
     def test_writer_request_and_draft_are_source_bound(self):
