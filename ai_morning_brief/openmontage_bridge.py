@@ -451,42 +451,48 @@ def reuse_synthesized_audio(
     audio_events = _audio_events(script, durations, audio_assets)
     music_boundaries = _music_boundaries(script, durations)
     final_mix = mix_audio(project_dir, narration, audio_assets, audio_events, music_boundaries)
-    # Speech QA gate: the edition may only render once every voice block has
-    # been verified by the local ASR listener.  A passed report for unchanged
-    # audio is reused; changed/failed audio is re-checked here; a block that
-    # exhausted its retry budget aborts the render.
-    speech_qa_status = "not_run"
-    try:
-        from .speech_qa import SpeechQABlocked, ensure_speech_qa
+    # ASR-measured word timestamps for the captions: transcribe each narration
+    # block (incremental, cached by audio hash) and write alignment ledgers.
+    # This is best-effort by design — a block without a usable alignment
+    # simply keeps deterministic proportional timing; nothing here can fail
+    # or block the render.
+    subtitle_alignment_entries = [dict(entry) for entry in manifest_data.get("segments", []) if isinstance(entry, Mapping)]
+    transcription_summary: dict[str, Any] | None = None
+    measured_ids: set[str] = set()
+    if align:
+        try:
+            from .speech_qa import transcribe_narration
 
-        qa_report = ensure_speech_qa(project_dir)
-        speech_qa_status = str(qa_report.get("status") or "unknown")
-        qa_engine = qa_report.get("engine")
-    except SpeechQABlocked as exc:
-        raise OpenMontageError(str(exc)) from exc
-    except (ImportError, FileNotFoundError, ValueError, RuntimeError) as exc:
-        # A broken QA setup must not silently pass: record it and keep the
-        # legacy proportional timing so the failure is visible in the report.
-        speech_qa_status = f"error: {str(exc)[:200]}"
-        qa_engine = None
-    # Captions use ASR-measured word timestamps when the gate produced them
-    # (alignment_provider asr-local); otherwise the deterministic proportional
-    # fallback applies exactly as before.
-    subtitle_aligned = bool(
-        align
-        and (
-            provider_name not in {"gemini", "doubao", "doubao-voice-clone"}
-            or speech_qa_status == "passed"
-        )
+            transcription_summary = transcribe_narration(project_dir)
+            measured_ids = set(transcription_summary.get("aligned_segments") or [])
+        except (ImportError, FileNotFoundError, ValueError, RuntimeError) as exc:
+            transcription_summary = {"error": str(exc)[:300]}
+    for entry in subtitle_alignment_entries:
+        if str(entry.get("segment_id") or "") in measured_ids:
+            entry["alignment_provider"] = "asr-local"
+    # Azure keeps its hard "alignment required" contract; doubao/gemini use
+    # whatever measured alignments exist and fall back per block.
+    azure_contract = provider_name not in {"gemini", "doubao", "doubao-voice-clone"}
+    subtitle_aligned = bool(align) and (azure_contract or bool(measured_ids))
+    subtitle_path, cues = write_subtitles(
+        project_dir,
+        script,
+        durations,
+        aligned=subtitle_aligned,
+        spoken_durations=spoken_durations,
+        proportional_fallback=not azure_contract,
     )
-    subtitle_path, cues = write_subtitles(project_dir, script, durations, aligned=subtitle_aligned, spoken_durations=spoken_durations)
     subtitle_alignment = _subtitle_alignment_report(
-        [entry for entry in manifest_data.get("segments", []) if isinstance(entry, Mapping)],
+        subtitle_alignment_entries,
         provider=provider_name,
         aligned=subtitle_aligned,
     )
-    subtitle_alignment["speech_qa_status"] = speech_qa_status
-    subtitle_alignment["speech_qa_engine"] = qa_engine
+    subtitle_alignment["speech_qa_status"] = (
+        "measured" if measured_ids else ("transcription_unavailable" if transcription_summary else "not_run")
+    )
+    if transcription_summary:
+        subtitle_alignment["transcription_engine"] = transcription_summary.get("engine")
+        subtitle_alignment["transcription_failed_segments"] = list(transcription_summary.get("failed_segments") or [])
     return {
         "durations": durations,
         "final_mix": final_mix,

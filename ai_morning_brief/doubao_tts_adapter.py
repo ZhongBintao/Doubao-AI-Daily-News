@@ -412,9 +412,6 @@ def verify_and_finalize(
             "spoken_text": entry["spoken_text"],
             "native_word_boundary": False,
             "sha256": _file_sha256(raw_path),
-            # Speech-QA bookkeeping (attempt count, colloquial override) is
-            # forwarded so the render-time gate can audit the reused audio.
-            **({"qa": dict(declared["qa"])} if isinstance(declared.get("qa"), Mapping) else {}),
         })
 
     manifest = {

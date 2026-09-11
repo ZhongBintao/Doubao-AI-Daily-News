@@ -249,7 +249,7 @@ def build_writing_request(editorial_input: Mapping[str, Any]) -> dict[str, Any]:
             "narration": "每条用具有稳定 beat_id 的 beat 完整解释具体事件和来源证据；不设置总字数、单 beat 字数、句数或视频时长上限。影响、行动、限制只在来源支持时写。beat 只绑定 claims，不为字幕宽度删减内容；字幕由下游按标点和画面宽度拆分。若有原文视觉，可按素材数量绑定一个或多个后置视觉 beat。",
             "cards": "卡片数量由有效 claim 和解释需要决定，不设固定上限；每张卡片有稳定 id、明确 subject 和独立信息职责。单页放不下时由渲染器自动分页，正文不得截断，metric 只在正文出现一次。",
             "grouping": "同一维度内，若多条资讯各自只有不超过两条独立支持 claim、正文短且不需要复杂时间线，可合并为一个 brief_group 场景；每组 2-4 条、每条恰好一张卡和一个 beat，共用一个顶部导航位。5-8 条必须拆成 3+2、3+3、4+3 或 4+4 等平衡分组，不能留下单条孤儿；维度头条/第一名和需要完整解释的故事保持 single。brief_group 必须填写 group_label、overview_items、card.source_item_id 和 beat.card_ids，且不展示评分或来源链接。",
-            "speech": "spoken_text 由 ai_morning_brief.writing.normalize_with_ledger 唯一生成且恒等于 display_text（v3.0 起不再做朗读改写）；显示数字去掉千位分隔符（例如 4，888→4888）；英文缩写、型号代码和阿拉伯数字按原文书写，由语音模型直接朗读，读错由本地 ASR 质检（speech_qa）在合成后拦截。若某段落确实需要口语化表达，只能通过 speech_qa 的一次性口语改写（spoken_override）下发，屏幕 display_text 不变。",
+            "speech": "spoken_text 由 ai_morning_brief.writing.normalize_with_ledger 唯一生成且恒等于 display_text（v3.0 起不再做朗读改写）；显示数字去掉千位分隔符（例如 4，888→4888）；英文缩写、型号代码和阿拉伯数字按原文书写，由语音模型直接朗读。",
             "grounding": "所有标题、卡片和 narration display 文案必须引用 exact source claims；不能补写来源未给出的数字、因果或预测，也不能逐字复制 AIHOT 标题或句子。",
         },
         "output_contract": {

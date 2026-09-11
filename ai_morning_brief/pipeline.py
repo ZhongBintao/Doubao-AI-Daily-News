@@ -893,12 +893,6 @@ def run_pipeline(
                     "alignment_provider": audio.get("alignment_provider"),
                     "subtitle_alignment": subtitle_alignment,
                     "subtitle_alignment_gate": {"status": "pass", "requested": bool(align)},
-                    "speech_qa": {
-                        "status": subtitle_alignment.get("speech_qa_status", "not_run"),
-                        "engine": subtitle_alignment.get("speech_qa_engine"),
-                        "report": str(artifacts / "speech_qa_report.json"),
-                        "policy": "every voice block verified by local ASR after synthesis; failed blocks retried up to 3 times; blocked editions cannot render",
-                    },
                     "gemini_benchmark_status": tts_benchmark.get("status"),
                     "tts_benchmark_execution": benchmark_execution,
                 },

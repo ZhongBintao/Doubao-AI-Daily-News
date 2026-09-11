@@ -923,7 +923,7 @@ def _caption_unit_cues(
     return cues
 
 
-def write_subtitles(project_dir: Path, script: Mapping[str, Any], durations: Mapping[str, float], *, aligned: bool = True, spoken_durations: Mapping[str, float] | None = None) -> tuple[Path, list[dict[str, Any]]]:
+def write_subtitles(project_dir: Path, script: Mapping[str, Any], durations: Mapping[str, float], *, aligned: bool = True, spoken_durations: Mapping[str, float] | None = None, proportional_fallback: bool = False) -> tuple[Path, list[dict[str, Any]]]:
     cues: list[dict[str, Any]] = []
     cursor = 0.0
     alignment_dir = project_dir / "artifacts" / "alignments"
@@ -941,15 +941,27 @@ def write_subtitles(project_dir: Path, script: Mapping[str, Any], durations: Map
         speech_duration = max(0.05, min(duration, speech_duration))
         words: list[Mapping[str, Any]] = []
         alignment_data: dict[str, Any] = {}
+        segment_aligned = aligned
         if aligned:
             if not alignment_path.is_file():
-                raise MediaError(f"subtitle alignment is required for {segment_id}: {alignment_path}")
-            alignment_data = json.loads(alignment_path.read_text(encoding="utf-8"))
-            words = list(alignment_data.get("word_timestamps") or [])
-            if not words:
-                raise MediaError(f"subtitle alignment has no word timestamps for {segment_id}: {alignment_path}")
+                if proportional_fallback:
+                    # ASR-timed path: this block has no usable measured
+                    # alignment (engine unavailable or transcription failed).
+                    # Degrade just this block to proportional timing instead
+                    # of failing the edition.
+                    segment_aligned = False
+                else:
+                    raise MediaError(f"subtitle alignment is required for {segment_id}: {alignment_path}")
+            else:
+                alignment_data = json.loads(alignment_path.read_text(encoding="utf-8"))
+                words = list(alignment_data.get("word_timestamps") or [])
+                if not words:
+                    if proportional_fallback:
+                        segment_aligned = False
+                    else:
+                        raise MediaError(f"subtitle alignment has no word timestamps for {segment_id}: {alignment_path}")
         caption_units = segment.get("caption_units") or []
-        if isinstance(caption_units, list) and caption_units and aligned and alignment_data.get("asr_transcript"):
+        if isinstance(caption_units, list) and caption_units and segment_aligned and alignment_data.get("asr_transcript"):
             # speech_qa measured the real word times for this block; captions
             # keep the authored display text and only borrow the timing.
             asr_cues = _asr_caption_unit_cues(caption_units, alignment_data, cursor, speech_duration)
@@ -959,7 +971,7 @@ def write_subtitles(project_dir: Path, script: Mapping[str, Any], durations: Map
                 cues.extend(_caption_unit_cues(caption_units, words, cursor, speech_duration))
         elif isinstance(caption_units, list) and caption_units:
             cues.extend(_caption_unit_cues(caption_units, words, cursor, speech_duration))
-        elif aligned:
+        elif segment_aligned:
             cues.extend(_phrase_cues(text, words, cursor, speech_duration))
         else:
             cues.extend(_phrase_cues(text, [], cursor, speech_duration))

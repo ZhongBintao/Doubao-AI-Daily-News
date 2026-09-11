@@ -6,18 +6,13 @@ from typing import Any, Mapping
 from unittest import mock
 
 from ai_morning_brief.asr_match import (
-    compare_texts,
-    extract_key_tokens,
-    find_repetition,
+    locate_words_in_normalized,
+    match_units_in_transcript,
     normalize_for_match,
 )
 from ai_morning_brief import speech_qa
-from ai_morning_brief.speech_qa import (
-    MAX_ATTEMPTS,
-    SpeechQABlocked,
-    ensure_speech_qa,
-    run_speech_qa,
-)
+from ai_morning_brief.speech_qa import transcribe_narration
+from ai_morning_brief.media import _asr_caption_unit_cues
 
 
 SEGMENTS = [
@@ -41,87 +36,34 @@ class AsrMatchTests(unittest.TestCase):
         self.assertEqual(normalize_for_match("G P U"), normalize_for_match("GPU"))
         self.assertEqual(normalize_for_match("R S A 二百六十"), normalize_for_match("RSA-260"))
 
-    def test_key_tokens_cover_numbers_and_words(self):
-        tokens = extract_key_tokens("RSA-260 模型，参数 552B，2020 年发布。")
-        self.assertIn("RSA-260", tokens)
-        self.assertIn("552B", tokens)
-        self.assertIn("2020", tokens)
+    def test_locate_words_maps_monotonically(self):
+        transcript = normalize_for_match("DeepSeek 发布 R S A 二百六十 模型。")
+        words = [
+            {"word": "DeepSeek"}, {"word": " 发布"}, {"word": " R"}, {"word": " S"},
+            {"word": " A"}, {"word": " 二"}, {"word": " 百"}, {"word": " 六"}, {"word": " 十"},
+            {"word": " 模型"}, {"word": "。"},
+        ]
+        spans = locate_words_in_normalized(words, transcript)
+        self.assertEqual(spans[0], (0, 8))
+        self.assertEqual(spans[-1], (-1, -1))  # punctuation carries no characters
+        self.assertEqual(spans[9], (transcript.index("模型"), transcript.index("模型") + 2))
 
-    def test_find_repetition_detects_stutter(self):
-        start, length = find_repetition(normalize_for_match("今天天气很好。今天天气很好。"))
-        self.assertEqual(length, 6)
-        self.assertEqual(start, 0)
-        self.assertIsNone(find_repetition(normalize_for_match("这是一段完全正常的中文旁白文本。")))
-
-    def test_compare_passes_variants_of_the_same_reading(self):
-        verdict = compare_texts(
-            "DeepSeek 发布 RSA-260 模型，GPU 集群规模翻倍。",
-            "DeepSeek 发布 R S A 二百六十 模型，G P U 集群规模翻倍。",
+    def test_match_units_finds_display_spans_in_transcript(self):
+        transcript = normalize_for_match("DeepSeek 发布 R S A 二百六十 模型，G P U 集群规模翻倍。")
+        spans = match_units_in_transcript(
+            ["DeepSeek 发布 RSA-260 模型。", "GPU 集群规模翻倍。"],
+            transcript,
         )
-        self.assertEqual(verdict["verdict"], "pass", verdict)
-
-    def test_compare_flags_missing_numeric_facts(self):
-        verdict = compare_texts("模型参数达到 552B。", "模型参数达到亮眼水平。")
-        self.assertEqual(verdict["verdict"], "missing_numeric_tokens")
-        self.assertIn("552B", verdict["missing_tokens"])
-
-    def test_unmatched_english_terms_pass_with_warning(self):
-        # Cloud feedback 2026-09: whisper-small mishears mixed-language
-        # technical terms.  A faithful Chinese reading must not be failed
-        # because the ASR could not transcribe "DeepSeek" or "GPU".
-        verdict = compare_texts(
-            "DeepSeek 发布 Engram 机制，GPU 集群规模翻倍。",
-            "深度求索发布新的记忆机制，图形集群规模翻倍。",
-        )
-        self.assertEqual(verdict["verdict"], "pass", verdict)
-        self.assertTrue(any("asr_degraded_english" in w for w in verdict["warnings"]), verdict)
-
-    def test_hallucinated_repetition_passes_with_warning(self):
-        # Whisper hallucination-style repetition whose span exists nowhere in
-        # the authored text is an ASR artifact, not a cloning stutter.
-        verdict = compare_texts(
-            "今天我们来看三条重要资讯。",
-            "今天我们来看三条重要资讯。谢谢观看谢谢观看谢谢观看。",
-        )
-        self.assertEqual(verdict["verdict"], "pass", verdict)
-        self.assertTrue(any("asr_hallucination" in w for w in verdict["warnings"]), verdict)
-
-    def test_real_stutter_still_fails(self):
-        # A repetition of authored text is a genuine cloning stutter.
-        verdict = compare_texts("今天天气很好。", "今天天气很好。今天天气很好。")
-        self.assertEqual(verdict["verdict"], "repetition")
-
-    def test_major_omission_fails(self):
-        verdict = compare_texts(
-            "这一段旁白一共说了好几件重要的事情需要完整听完。",
-            "这一段旁白。",
-        )
-        self.assertEqual(verdict["verdict"], "major_omission", verdict)
-
-    def test_moderate_similarity_passes_with_warning(self):
-        verdict = compare_texts(
-            "该模型在多项基准测试中取得了明显的领先成绩，并且开放了下载。",
-            "该模型在基准测试里成绩领先，开放了下载。",
-        )
-        self.assertLess(verdict["similarity"], 0.72, verdict)
-        self.assertEqual(verdict["verdict"], "pass", verdict)
-        self.assertTrue(any("low_similarity" in w for w in verdict["warnings"]), verdict)
-
-    def test_compare_flags_empty_transcript(self):
-        verdict = compare_texts("有实际内容的一段话。", "嗯。 啊。")
-        self.assertNotEqual(verdict["verdict"], "pass")
-
-    def test_override_attempts_still_check_display_facts(self):
-        verdict = compare_texts(
-            "这一模型的命名很有意思。",  # colloquial override wording
-            "这一模型的命名很有意思。",
-            extra_expected_tokens=extract_key_tokens("DeepSeek 发布 RSA-260 模型。"),
-        )
-        self.assertEqual(verdict["verdict"], "missing_numeric_tokens")
+        self.assertIsNotNone(spans[0])
+        self.assertIsNotNone(spans[1])
+        start0, end0 = spans[0]
+        self.assertEqual(transcript[start0:end0], normalize_for_match("DeepSeek 发布 RSA-260 模型"))
+        # Units are matched in order, non-overlapping.
+        self.assertLessEqual(spans[0][1], spans[1][0])
 
 
-class _QAFixture(unittest.TestCase):
-    """Build a fake run directory with narration plan, audio, and manifest."""
+class _TranscribeFixture(unittest.TestCase):
+    """Build a fake run directory with narration plan and audio."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -132,23 +74,11 @@ class _QAFixture(unittest.TestCase):
             json.dumps({"version": "3.0", "segments": [dict(s) for s in SEGMENTS]}, ensure_ascii=False),
             encoding="utf-8",
         )
-        manifest_segments = [
-            {
-                "segment_id": segment["id"],
-                "spoken_text": segment["spoken_text"],
-                "output_path": str(self.run_dir / "assets" / "audio" / f"narration-{segment['id']}.wav"),
-                "char_count": len(segment["spoken_text"]),
-            }
-            for segment in SEGMENTS
-        ]
-        (self.run_dir / "artifacts" / "tts_manifest.json").write_text(
-            json.dumps({"version": "2.0", "segments": manifest_segments}, ensure_ascii=False),
-            encoding="utf-8",
-        )
         self.audio_counter = 0
         for segment in SEGMENTS:
             self._write_audio(segment["id"])
-        # The gate never decodes audio in unit tests: durations come from ffprobe.
+        # The transcriber never decodes audio in unit tests: durations come
+        # from ffprobe.
         self._duration_patch = mock.patch.object(speech_qa, "media_duration", return_value=6.0)
         self._duration_patch.start()
 
@@ -159,145 +89,106 @@ class _QAFixture(unittest.TestCase):
     def _write_audio(self, segment_id: str) -> Path:
         self.audio_counter += 1
         path = self.run_dir / "assets" / "audio" / f"narration-{segment_id}.wav"
-        # Bytes change per "resynthesis" so the gate sees a fresh hash.
         path.write_bytes(f"fake wav audio {segment_id} take {self.audio_counter}".encode("utf-8"))
         return path
 
-    def _install_transcriber(self, responses: Mapping[str, str]):
-        """Patch speech_qa.transcribe with a canned per-segment transcript."""
+    def _install_transcriber(self, responses: Mapping[str, Any]):
+        """Patch speech_qa.transcribe with canned per-segment responses.
 
-        calls: list[str] = []
+        A response value that is an Exception instance is raised instead,
+        simulating an engine failure for that block only.
+        """
 
         def fake_transcribe(audio_path: Path, *, engine: str | None = None, model: str | None = None) -> dict[str, Any]:
             segment_id = audio_path.stem.replace("narration-", "")
-            calls.append(segment_id)
-            text = responses.get(segment_id, "")
+            response: Any = responses.get(segment_id, "")
+            if isinstance(response, Exception):
+                raise response
+            text = str(response)
             return {
                 "text": text,
                 "words": [{"word": word, "start": index * 0.3, "end": index * 0.3 + 0.28} for index, word in enumerate(text.split())],
                 "engine": "mock",
-                "model": "mock-small",
             }
 
         patcher = mock.patch.object(speech_qa, "transcribe", side_effect=fake_transcribe)
         patcher.start()
         self.addCleanup(patcher.stop)
-        return calls
 
 
-class SpeechQARunTests(_QAFixture):
-    def test_passing_readings_write_report_and_alignment(self):
-        good = "DeepSeek 发布 R S A 二百六十 模型，G P U 集群规模翻倍。"
+class TranscribeNarrationTests(_TranscribeFixture):
+    def test_transcribes_every_block_and_writes_alignments(self):
         self._install_transcriber({
-            "intro": "各位观众早上好，今天是9月11日。欢迎收看AI早报。",
-            "story-01": good,
-            "outro": "今天的AI资讯播送完毕。我们明天见。",
+            "intro": "各位观众早上好 今天是9月11日 欢迎收看AI早报",
+            "story-01": "DeepSeek 发布 R S A 二百六十 模型 G P U 集群规模翻倍",
+            "outro": "今天的AI资讯播送完毕 我们明天见",
         })
-        report = run_speech_qa(self.run_dir)
-        self.assertEqual(report["status"], "passed")
-        self.assertEqual(report["resynthesis_queue"], [])
+        summary = transcribe_narration(self.run_dir)
+        self.assertEqual(len(summary["aligned_segments"]), 3)
+        self.assertEqual(summary["failed_segments"], [])
         alignment = json.loads((self.run_dir / "artifacts" / "alignments" / "story-01.json").read_text(encoding="utf-8"))
         self.assertEqual(alignment["alignment_provider"], "asr-local")
         self.assertIn("asr_transcript", alignment)
         self.assertTrue(alignment["word_timestamps"])
-        manifest = json.loads((self.run_dir / "artifacts" / "tts_manifest.json").read_text(encoding="utf-8"))
-        qa_by_id = {s["segment_id"]: s.get("qa") for s in manifest["segments"]}
-        self.assertEqual(qa_by_id["story-01"]["status"], "passed")
+        self.assertTrue(alignment.get("audio_sha256"))
 
-        # Unchanged audio: ensure_speech_qa reuses the passed report.
-        reused = ensure_speech_qa(self.run_dir)
-        self.assertEqual(reused["status"], "passed")
+        # Cached alignment for unchanged audio is reused (no engine call).
+        with mock.patch.object(speech_qa, "transcribe", side_effect=AssertionError("must not re-transcribe")):
+            summary = transcribe_narration(self.run_dir)
+        self.assertEqual(sorted(summary["skipped_segments"]), ["intro", "outro", "story-01"])
 
-    def test_failed_block_enters_resynthesis_queue_and_manifest(self):
-        responses = {
-            "intro": "各位观众早上好，今天是9月11日。欢迎收看AI早报。",
-            "story-01": "嗯，这个模型好像挺不错的样子吧大概是这样。",  # facts skipped
-            "outro": "今天的AI资讯播送完毕。我们明天见。",
-        }
-        self._install_transcriber(responses)
-        report = run_speech_qa(self.run_dir)
-        self.assertEqual(report["status"], "failed")
-        self.assertEqual(report["resynthesis_queue"], ["story-01"])
-        manifest = json.loads((self.run_dir / "artifacts" / "tts_manifest.json").read_text(encoding="utf-8"))
-        qa_by_id = {s["segment_id"]: s.get("qa") for s in manifest["segments"]}
-        self.assertEqual(qa_by_id["story-01"]["status"], "needs_resynthesis")
-        self.assertEqual(qa_by_id["story-01"]["attempt"], 1)
-
-        # Re-running without resynthesis must not burn another attempt.
-        report = run_speech_qa(self.run_dir)
-        story = next(s for s in report["segments"] if s["segment_id"] == "story-01")
-        self.assertEqual(story["attempt"], 1)
-        self.assertEqual(story["status"], "needs_resynthesis")
-
-    def test_retry_ladder_reaches_override_then_blocks(self):
-        bad = "嗯，这个模型好像挺不错的样子吧大概是这样。"
-        responses = {
-            "intro": "各位观众早上好，今天是9月11日。欢迎收看AI早报。",
-            "story-01": bad,
-            "outro": "今天的AI资讯播送完毕。我们明天见。",
-        }
-        self._install_transcriber(responses)
-        run_speech_qa(self.run_dir)  # attempt 1 fails
-
-        # Attempt 2: agent resynthesizes (new audio bytes), still bad.
-        self._write_audio("story-01")
-        report = run_speech_qa(self.run_dir)
-        story = next(s for s in report["segments"] if s["segment_id"] == "story-01")
-        self.assertEqual(story["attempt"], 2)
-        self.assertEqual(story["status"], "needs_resynthesis")
-
-        # Attempt 3: agent provides a colloquial override; screen text unchanged.
-        overrides_path = self.run_dir / "artifacts" / "speech_qa" / "colloquial_overrides.json"
-        overrides_path.parent.mkdir(parents=True, exist_ok=True)
-        overrides_path.write_text(json.dumps({"story-01": "这个命名方式我们直接说它的编号。"}, ensure_ascii=False), encoding="utf-8")
-        self._write_audio("story-01")
-        report = run_speech_qa(self.run_dir)
-        story = next(s for s in report["segments"] if s["segment_id"] == "story-01")
-        self.assertEqual(story["attempt"], MAX_ATTEMPTS)
-        self.assertEqual(story["spoken_override"], "这个命名方式我们直接说它的编号。")
-        self.assertEqual(story["status"], "blocked")
-        self.assertEqual(report["status"], "blocked")
-
-        # Render gate must refuse.
-        with self.assertRaises(SpeechQABlocked):
-            ensure_speech_qa(self.run_dir)
-
-    def test_resynthesized_audio_passing_on_second_attempt(self):
-        responses = {
-            "intro": "各位观众早上好，今天是9月11日。欢迎收看AI早报。",
-            "story-01": "DeepSeek 发布模型，集群规模翻倍。",  # attempt 1: RSA-260/GPU skipped
-            "outro": "今天的AI资讯播送完毕。我们明天见。",
-        }
-        self._install_transcriber(responses)
-        run_speech_qa(self.run_dir)
-        self._install_transcriber({
-            "story-01": "DeepSeek 发布 R S A 二百六十 模型，G P U 集群规模翻倍。",
-        })
-        self._write_audio("story-01")
-        report = run_speech_qa(self.run_dir)
-        self.assertEqual(report["status"], "passed")
-        story = next(s for s in report["segments"] if s["segment_id"] == "story-01")
-        self.assertEqual(story["attempt"], 2)
-        self.assertEqual(story["status"], "passed")
-
-    def test_no_engine_marks_unavailable_and_does_not_block(self):
+    def test_engine_unavailable_degrades_without_raising(self):
         with mock.patch.object(speech_qa, "detect_engine", return_value=None):
-            report = run_speech_qa(self.run_dir)
-            self.assertEqual(report["status"], "unavailable")
-            # Render gate tolerates an unavailable gate (proportional fallback).
-            reused = ensure_speech_qa(self.run_dir)
-        self.assertEqual(reused["status"], "unavailable")
+            summary = transcribe_narration(self.run_dir)
+        self.assertEqual(summary["aligned_segments"], [])
+        self.assertEqual(len(summary["failed_segments"]), 3)
+        self.assertFalse((self.run_dir / "artifacts" / "alignments").exists())
+
+    def test_single_engine_failure_only_degrades_that_block(self):
+        self._install_transcriber({
+            "intro": "各位观众早上好 今天是9月11日 欢迎收看AI早报",
+            "story-01": RuntimeError("engine exploded"),
+            "outro": "今天的AI资讯播送完毕 我们明天见",
+        })
+        summary = transcribe_narration(self.run_dir)
+        self.assertIn("story-01", summary["failed_segments"])
+        self.assertEqual(sorted(summary["aligned_segments"]), ["intro", "outro"])
 
 
-class TtsManifestDisplayTextTests(_QAFixture):
-    def test_manifest_records_display_and_spoken(self):
-        from ai_morning_brief.doubao_tts_adapter import generate_tts_manifest
-
-        manifest = generate_tts_manifest(self.run_dir, tts_mode="voice-clone")
-        self.assertTrue(manifest["speech_contract"]["spoken_equals_display"])
-        for segment in manifest["segments"]:
-            self.assertIn("display_text", segment)
-            self.assertEqual(segment["display_text"], segment["spoken_text"])
+class CaptionTimingTests(unittest.TestCase):
+    def test_asr_alignment_times_display_caption_units(self):
+        alignment = {
+            "asr_transcript": "DeepSeek 发布 R S A 二百六十 模型，G P U 集群参数亮眼。",
+            "word_timestamps": [
+                {"word": "DeepSeek", "start": 0.0, "end": 0.6},
+                {"word": " 发布", "start": 0.6, "end": 1.0},
+                {"word": " R", "start": 1.0, "end": 1.2},
+                {"word": " S", "start": 1.2, "end": 1.4},
+                {"word": " A", "start": 1.4, "end": 1.6},
+                {"word": " 二", "start": 1.6, "end": 1.8},
+                {"word": " 百", "start": 1.8, "end": 2.0},
+                {"word": " 六", "start": 2.0, "end": 2.2},
+                {"word": " 十", "start": 2.2, "end": 2.4},
+                {"word": " 模型", "start": 2.4, "end": 2.9},
+                {"word": "，", "start": 2.9, "end": 3.0},
+                {"word": " G", "start": 3.0, "end": 3.2},
+                {"word": " P", "start": 3.2, "end": 3.4},
+                {"word": " U", "start": 3.4, "end": 3.6},
+                {"word": " 集群", "start": 3.6, "end": 4.0},
+                {"word": " 参数", "start": 4.0, "end": 4.4},
+                {"word": " 亮眼", "start": 4.4, "end": 4.8},
+                {"word": "。", "start": 4.8, "end": 4.9},
+            ],
+        }
+        units = [
+            {"display_text": "DeepSeek 发布 RSA-260 模型。", "beat_id": "b1"},
+            {"display_text": "GPU 集群参数亮眼。", "beat_id": "b1"},
+        ]
+        cues = _asr_caption_unit_cues(units, alignment, offset=10.0, duration=5.5)
+        self.assertIsNotNone(cues)
+        self.assertEqual(cues[0]["text"], "DeepSeek 发布 RSA-260 模型。")
+        self.assertAlmostEqual(cues[0]["start"], 10.0, places=2)
+        self.assertAlmostEqual(cues[1]["start"], 13.0, places=2)
 
 
 if __name__ == "__main__":
