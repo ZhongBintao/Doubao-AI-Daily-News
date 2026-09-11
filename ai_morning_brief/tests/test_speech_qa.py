@@ -60,21 +60,52 @@ class AsrMatchTests(unittest.TestCase):
         )
         self.assertEqual(verdict["verdict"], "pass", verdict)
 
-    def test_compare_flags_missing_facts(self):
+    def test_compare_flags_missing_numeric_facts(self):
         verdict = compare_texts("模型参数达到 552B。", "模型参数达到亮眼水平。")
-        self.assertEqual(verdict["verdict"], "missing_tokens")
+        self.assertEqual(verdict["verdict"], "missing_numeric_tokens")
         self.assertIn("552B", verdict["missing_tokens"])
 
-    def test_compare_flags_repetition(self):
+    def test_unmatched_english_terms_pass_with_warning(self):
+        # Cloud feedback 2026-09: whisper-small mishears mixed-language
+        # technical terms.  A faithful Chinese reading must not be failed
+        # because the ASR could not transcribe "DeepSeek" or "GPU".
+        verdict = compare_texts(
+            "DeepSeek 发布 Engram 机制，GPU 集群规模翻倍。",
+            "深度求索发布新的记忆机制，图形集群规模翻倍。",
+        )
+        self.assertEqual(verdict["verdict"], "pass", verdict)
+        self.assertTrue(any("asr_degraded_english" in w for w in verdict["warnings"]), verdict)
+
+    def test_hallucinated_repetition_passes_with_warning(self):
+        # Whisper hallucination-style repetition whose span exists nowhere in
+        # the authored text is an ASR artifact, not a cloning stutter.
+        verdict = compare_texts(
+            "今天我们来看三条重要资讯。",
+            "今天我们来看三条重要资讯。谢谢观看谢谢观看谢谢观看。",
+        )
+        self.assertEqual(verdict["verdict"], "pass", verdict)
+        self.assertTrue(any("asr_hallucination" in w for w in verdict["warnings"]), verdict)
+
+    def test_real_stutter_still_fails(self):
+        # A repetition of authored text is a genuine cloning stutter.
         verdict = compare_texts("今天天气很好。", "今天天气很好。今天天气很好。")
         self.assertEqual(verdict["verdict"], "repetition")
 
-    def test_compare_flags_extra_content(self):
+    def test_major_omission_fails(self):
         verdict = compare_texts(
-            "参数翻倍。",
-            "参数翻倍。需要补充说明的是这是编辑临时增加的一段完全不相关的内容用来凑时长。",
+            "这一段旁白一共说了好几件重要的事情需要完整听完。",
+            "这一段旁白。",
         )
-        self.assertEqual(verdict["verdict"], "extra_content")
+        self.assertEqual(verdict["verdict"], "major_omission", verdict)
+
+    def test_moderate_similarity_passes_with_warning(self):
+        verdict = compare_texts(
+            "该模型在多项基准测试中取得了明显的领先成绩，并且开放了下载。",
+            "该模型在基准测试里成绩领先，开放了下载。",
+        )
+        self.assertLess(verdict["similarity"], 0.72, verdict)
+        self.assertEqual(verdict["verdict"], "pass", verdict)
+        self.assertTrue(any("low_similarity" in w for w in verdict["warnings"]), verdict)
 
     def test_compare_flags_empty_transcript(self):
         verdict = compare_texts("有实际内容的一段话。", "嗯。 啊。")
@@ -86,7 +117,7 @@ class AsrMatchTests(unittest.TestCase):
             "这一模型的命名很有意思。",
             extra_expected_tokens=extract_key_tokens("DeepSeek 发布 RSA-260 模型。"),
         )
-        self.assertEqual(verdict["verdict"], "missing_tokens")
+        self.assertEqual(verdict["verdict"], "missing_numeric_tokens")
 
 
 class _QAFixture(unittest.TestCase):

@@ -48,7 +48,7 @@ from zoneinfo import ZoneInfo
 from .asr_match import compare_texts, extract_key_tokens, normalize_for_match
 from .media import media_duration, write_json
 
-SPEECH_QA_VERSION = "1.0"
+SPEECH_QA_VERSION = "1.1"
 TIMEZONE = "Asia/Shanghai"
 MAX_ATTEMPTS = 3
 MIN_SIMILARITY = 0.72
@@ -377,6 +377,11 @@ def run_speech_qa(
     resolved_model = model or os.environ.get("AI_BRIEF_ASR_MODEL") or (
         DEFAULT_MLX_WHISPER_MODEL if resolved_engine == "mlx-whisper" else DEFAULT_WHISPER_MODEL
     )
+    # Judgement rules evolve (e.g. the two-tier verdict policy): states
+    # written by an older policy are re-judged instead of being honoured, so
+    # a stricter old run cannot permanently block otherwise-correct audio.
+    previous_report = _load_json(run_dir / "artifacts" / REPORT_FILENAME)
+    state_reset = str(previous_report.get("version") or "") != SPEECH_QA_VERSION
 
     records: list[dict[str, Any]] = []
     manifest_qa: dict[str, dict[str, Any]] = {}
@@ -409,6 +414,12 @@ def run_speech_qa(
             continue
         audio_hash = _file_sha256(audio_path)
         record["audio_sha256"] = audio_hash
+        if state_reset:
+            segment_state.pop("pending_attempt", None)
+            if segment_state.get("status") in {"needs_resynthesis", "blocked"}:
+                # Old-policy failure: re-judge with the current rules without
+                # burning an extra attempt on the same audio.
+                segment_state["status"] = "pending_rejudge"
 
         # Reuse a previously passed verdict for unchanged audio.
         if (
@@ -494,6 +505,7 @@ def run_speech_qa(
             "missing_tokens": verdict["missing_tokens"],
             "repetition": verdict["repetition"],
             "extra_content": verdict["extra_content"],
+            "warnings": [str(item) for item in verdict.get("warnings", [])],
             "transcript": str(transcript.get("text", "")),
             "engine": transcript.get("engine"),
         })
@@ -602,6 +614,12 @@ def run_speech_qa(
         "model": resolved_model,
         "max_attempts": MAX_ATTEMPTS,
         "minimum_similarity": MIN_SIMILARITY,
+        "hard_floor_similarity": 0.45,
+        "judgement_policy": {
+            "hard_failures": ["empty_transcript", "missing_numeric_tokens", "repetition_of_authored_text", "major_omission", "low_similarity_below_hard_floor"],
+            "accepted_with_warnings": ["unmatched_english_terms", "asr_hallucination_repetition", "moderate_similarity", "extra_content"],
+            "rationale": "small ASR models mishear mixed-language technical terms; only high-confidence structural faults of the reading itself trigger resynthesis",
+        },
         "generated_at": _now(),
         "segment_count": len(records),
         "segments": records,

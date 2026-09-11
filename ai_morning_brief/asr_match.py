@@ -140,16 +140,53 @@ def find_repetition(normalized: str, *, minimum_length: int = 4, maximum_length:
     return None
 
 
+def fact_tokens(text: str) -> tuple[list[str], list[str]]:
+    """Split a text's key tokens into (numeric, ascii) fact classes.
+
+    ``numeric`` are tokens a listener must hear to keep the facts: Arabic
+    numerals with optional unit suffixes (``552B``, ``2020``) plus the bare
+    digit substrings of alphanumeric codes (``RSA-260`` -> ``260``).
+    ``ascii`` are alphabetic tokens (``GPU``, ``DeepSeek``) whose exact ASR
+    transcription is unreliable — a missing one is recorded as a warning,
+    never a failure.
+    """
+
+    numeric: list[str] = []
+    ascii_tokens: list[str] = []
+    for token in extract_key_tokens(text):
+        if token[0].isdigit():
+            if token not in numeric:
+                numeric.append(token)
+        else:
+            if token not in ascii_tokens:
+                ascii_tokens.append(token)
+            digits = re.sub(r"[^0-9]", "", token)
+            if digits and digits not in numeric:
+                numeric.append(digits)
+    return numeric, ascii_tokens
+
+
 def compare_texts(expected: str, transcript: str, *, minimum_similarity: float = 0.72, extra_expected_tokens: Sequence[str] = ()) -> dict:
     """Judge one transcript against its expected narration text.
 
     ``extra_expected_tokens`` lets a colloquial-override attempt still be held
     to the facts of the on-screen display text: tokens listed there must also
     be audible even though the spoken wording was paraphrased.
-    The verdict keys match the retry policy in ``speech_qa``:
-    ``pass`` / ``low_similarity`` / ``missing_tokens`` (facts read wrong or
-    skipped) / ``repetition`` (stutter) / ``extra_content`` (hallucinated
-    additions) / ``empty_transcript`` (nothing intelligible spoken).
+
+    Verdicts are two-tier by design (cloud feedback 2026-09: whisper-small
+    mishears mixed-language technical terms and transcribed garbage as
+    repetition, which used to fail otherwise-correct audio):
+
+    * hard failures — only high-confidence structural faults of the reading
+      itself: ``empty_transcript``, ``missing_numeric_tokens`` (digits from
+      the display text never heard), ``repetition`` (the repeated span is
+      real authored text, i.e. a genuine stutter), ``major_omission`` (half
+      the narration is missing) and ``low_similarity`` below a hard floor.
+    * warnings — anything that may equally be the ASR's own weakness:
+      unmatched English terms, whisper hallucination-style repetition that
+      does not exist in the authored text, extra tail content, moderate
+      similarity misses.  Verdict stays ``pass``; the warnings are recorded
+      in the QA report for human review.
     """
 
     expected_normalized = normalize_for_match(expected)
@@ -161,11 +198,11 @@ def compare_texts(expected: str, transcript: str, *, minimum_similarity: float =
         "missing_tokens": [],
         "repetition": None,
         "extra_content": False,
+        "warnings": [],
         "verdict": "pass",
         "reason": "",
     }
     if not expected_normalized:
-        report["verdict"] = "pass"
         report["reason"] = "empty expected text"
         return report
     if not transcript_normalized:
@@ -174,41 +211,91 @@ def compare_texts(expected: str, transcript: str, *, minimum_similarity: float =
         return report
     ratio = difflib.SequenceMatcher(None, expected_normalized, transcript_normalized).ratio()
     report["similarity"] = round(ratio, 4)
-    # Fact tokens: every numeral and multi-char ASCII word in the display text
-    # must survive normalization somewhere in the transcript.  A bare numeric
-    # fallback is accepted so unit-spelling differences (552B vs 五千五百二十亿
-    # vs 552000000000) do not fail an otherwise faithful reading.
-    missing: list[str] = []
-    for token in list(extract_key_tokens(expected)) + [str(token) for token in extra_expected_tokens]:
-        token_key = normalize_for_match(token)
-        if token_key and token_key in transcript_normalized:
-            continue
+
+    # Fact tokens split into numeric (hard) and ascii (soft) classes.
+    numeric_tokens, ascii_tokens = fact_tokens(expected)
+    for token in extra_expected_tokens:
+        token_numeric, token_ascii = fact_tokens(str(token))
+        numeric_tokens.extend(t for t in token_numeric if t not in numeric_tokens)
+        ascii_tokens.extend(t for t in token_ascii if t not in ascii_tokens)
+
+    def heard(token: str) -> bool:
+        key = normalize_for_match(token)
+        if key and key in transcript_normalized:
+            return True
         digits = re.sub(r"[^0-9]", "", token)
-        if digits and digits in transcript_normalized:
-            continue
-        if token not in missing:
-            missing.append(token)
-    report["missing_tokens"] = missing
+        return bool(digits) and digits in transcript_normalized
+
+    warnings: list[str] = report["warnings"]
+
+    # 1. Numeric facts: the one class a degraded ASR still gets right, and
+    #    the one thing a skipped or misread number must never survive.
+    missing_numeric = [token for token in numeric_tokens if not heard(token)]
+    report["missing_tokens"] = missing_numeric
+    if missing_numeric:
+        report["verdict"] = "missing_numeric_tokens"
+        report["reason"] = "numeric facts not heard: " + ", ".join(missing_numeric[:8])
+        return report
+
+    # 2. Repetition: a genuine stutter repeats authored text; a repeated span
+    #    that exists nowhere in the authored text is whisper hallucination.
     repetition = find_repetition(transcript_normalized)
     report["repetition"] = list(repetition) if repetition else None
+    if repetition is not None:
+        repeated_span = transcript_normalized[repetition[0]:repetition[0] + repetition[1]]
+        if repeated_span in expected_normalized:
+            report["verdict"] = "repetition"
+            report["reason"] = f"authored text repeated at {repetition[0]} (len {repetition[1]})"
+            return report
+        warnings.append(f"asr_hallucination_repetition: repeated span not present in narration")
+
+    # 3. English terms: small ASR models routinely miss mixed-language
+    #    technical vocabulary.  Never fail on these; record what was lost.
+    unmatched_ascii = [token for token in ascii_tokens if not heard(token)]
+    degraded_english = bool(ascii_tokens) and len(unmatched_ascii) == len(ascii_tokens)
+    if degraded_english:
+        warnings.append("asr_degraded_english: no English term was recognized (" + ", ".join(ascii_tokens[:6]) + ")")
+    elif unmatched_ascii:
+        warnings.append("ascii_token_unmatched: " + ", ".join(unmatched_ascii[:6]))
+
+    # 4. Major omission: over half the narration missing is a structural
+    #    fault a degraded ASR does not fake (it garbles, it does not shorten
+    #    faithful Chinese reading by half).
+    if len(transcript_normalized) < 0.45 * len(expected_normalized):
+        report["verdict"] = "major_omission"
+        report["reason"] = f"transcript covers less than half the narration ({len(transcript_normalized)}/{len(expected_normalized)} chars)"
+        return report
+
+    # 5. Similarity: hard floor for wholesale mismatch, warning for moderate.
+    #    When the ASR itself failed on every English term, the overall ratio
+    #    is depressed by exactly those missing tokens — judge the hard floor
+    #    on the Chinese skeleton instead, with the English tokens removed
+    #    from the expected side.
+    floor_ratio = ratio
+    floor_basis = "full text"
+    if degraded_english:
+        chinese_expected = expected_normalized
+        for token in ascii_tokens:
+            chinese_expected = chinese_expected.replace(normalize_for_match(token), "")
+        if chinese_expected:
+            floor_ratio = difflib.SequenceMatcher(None, chinese_expected, transcript_normalized).ratio()
+            floor_basis = "chinese skeleton"
+    report["similarity"] = round(ratio, 4)
+    report["chinese_skeleton_similarity"] = round(floor_ratio, 4) if degraded_english else None
     extra_content = len(transcript_normalized) > max(len(expected_normalized) * 1.35, len(expected_normalized) + 12)
     report["extra_content"] = extra_content
-    if repetition is not None:
-        report["verdict"] = "repetition"
-        report["reason"] = f"repeated span at {repetition[0]} (len {repetition[1]})"
-    elif missing:
-        report["verdict"] = "missing_tokens"
-        report["reason"] = "expected tokens not heard: " + ", ".join(missing[:8])
-    elif extra_content:
-        # More specific than a bare similarity miss: the voice model added
-        # content, which is what a caller must fix first.
-        report["verdict"] = "extra_content"
-        report["reason"] = "transcript much longer than the narration text"
-    elif ratio < minimum_similarity:
+    if floor_ratio < 0.45:
         report["verdict"] = "low_similarity"
-        report["reason"] = f"similarity {ratio:.3f} below {minimum_similarity:.2f}"
+        report["reason"] = f"similarity {floor_ratio:.3f} ({floor_basis}) far below the hard floor 0.45"
+        return report
+    if ratio < minimum_similarity:
+        warnings.append(f"low_similarity: {ratio:.3f} below target {minimum_similarity:.2f} (accepted)")
+    if extra_content:
+        warnings.append("extra_content: transcript longer than the narration text (possibly ASR tail hallucination)")
+
+    if warnings:
+        report["reason"] = "accepted with warnings: " + "; ".join(warnings[:3])
     else:
-        report["verdict"] = "pass"
         report["reason"] = "reading matches the authored text"
     return report
 
