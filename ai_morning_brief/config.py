@@ -54,13 +54,57 @@ DEFAULT_REGION = "southeastasia"
 # provider adapter, and audit manifest cannot drift apart.
 DEFAULT_AZURE_TTS_TEMPERATURE = 0.7
 
-# Doubao voice cloning (cloud-computer native production voice).
-# The reference audio ships with the repo so a cloud-computer reset only
+# Doubao in-conversation speech synthesis (cloud-computer native production
+# voice).  Two modes are supported and share the same pipeline:
+#
+#   text-to-audio  (default)  ``text_to_audio_plus`` with the natural-language
+#                             voice profile below.  No reference audio needed.
+#   voice-clone    (fallback) ``audio_to_audio_plus`` with a reference clip.
+#
+# The voice profile is the single source of truth for the narration voice and
+# its tempo: it is embedded in ``tts_manifest.json``, the agent handoff and the
+# ``ai-brief-doubao-voice`` skill, so changing the voice never requires editing
+# three places by hand.
+DOUBAO_TTS_VOICE_PROFILE = (
+    "年轻女性，声音温柔甜美，语速比正常快约 25%，咬字清晰有节奏感，"
+    "情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声"
+)
+DEFAULT_TTS_MODE = "text-to-audio"
+DOUBAO_PROVIDER = "doubao"
+DOUBAO_ALIGNMENT_PROVIDER = "doubao-proportional"
+
+# Voice cloning stays fully supported as an explicit fallback
+# (``--tts-mode voice-clone`` / ``--speech-provider doubao-voice-clone``).
+# The reference clip still ships with the repo so a cloud-computer reset only
 # needs a git pull to restore it.  Override via DOUBAO_VOICE_CLONE_REFERENCE.
 DEFAULT_VOICE_CLONE_REFERENCE_AUDIO = REPO_ROOT / "example-audio.mp3"
-DEFAULT_TTS_MODE = "voice-clone"
 DOUBAO_VOICE_CLONE_PROVIDER = "doubao-voice-clone"
 DOUBAO_VOICE_CLONE_ALIGNMENT = "doubao-voice-clone-proportional"
+
+# Last-resort tempo correction, OFF by default (1.0).
+# The voice profile already asks the model for a faster delivery.  If a given
+# engine ignores that instruction, setting AI_BRIEF_SPEECH_TEMPO=1.25 speeds up
+# each normalized narration block with ffmpeg's pitch-preserving ``atempo``;
+# every downstream duration, caption and music boundary follows the new
+# length automatically because durations are measured from the final audio.
+DEFAULT_SPEECH_TEMPO = 1.0
+SPEECH_TEMPO_MIN = 0.5
+SPEECH_TEMPO_MAX = 2.0
+
+
+def speech_tempo() -> float:
+    """Return the configured narration tempo multiplier (1.0 = untouched)."""
+
+    raw = os.environ.get("AI_BRIEF_SPEECH_TEMPO")
+    if not raw:
+        return DEFAULT_SPEECH_TEMPO
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_SPEECH_TEMPO
+    if not (SPEECH_TEMPO_MIN <= value <= SPEECH_TEMPO_MAX):
+        return DEFAULT_SPEECH_TEMPO
+    return value
 
 # Optional source-visual mode is deliberately off by default. These values are
 # configuration points rather than editorial content, so production can tune

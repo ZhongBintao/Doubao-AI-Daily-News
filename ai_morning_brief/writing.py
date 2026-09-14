@@ -8,14 +8,15 @@ input, while this module provides the repeatable, machine-checkable part of
 the hand-off: richer draft scaffolding, display/spoken text separation, and a
 pronunciation ledger.
 
-Speech model (v3.0): modern in-conversation voice cloning (Doubao
-``audio_to_audio_plus``) already reads English acronyms, model codes and
-Arabic numerals correctly from context.  Pre-expanding them deterministically
-(ex ``GPU`` -> ``G P U``, ``RSA-260`` -> ``R S A 二百六十``) produced stilted,
-partly skipped narration and desynced captions.  ``spoken_text`` is therefore
-kept identical to the canonical ``display_text``; TTS input is raw text.
-Post-synthesis quality is enforced downstream by the local ASR gate in
-``ai_morning_brief.speech_qa`` instead of by input rewriting.
+Speech model (v3.0): the Doubao in-conversation speech tools
+(``text_to_audio_plus`` / ``audio_to_audio_plus``) already read English
+acronyms, model codes and Arabic numerals correctly from context.
+Pre-expanding them deterministically (ex ``GPU`` -> ``G P U``,
+``RSA-260`` -> ``R S A 二百六十``) produced stilted, partly skipped narration
+and desynced captions.  ``spoken_text`` is therefore kept identical to the
+canonical ``display_text``; TTS input is the raw authored text.  Captions are
+timed from local ASR word timestamps (``ai_morning_brief.speech_qa``) rather
+than by rewriting the narration.
 """
 
 import copy
@@ -31,8 +32,8 @@ from typing import Any, Mapping
 WRITER_VERSION = "4.1"
 WRITER_PROMPT_VERSION = "codex-news-writer-v4.1"
 # v3.0: spoken_text is no longer a rewritten variant of display_text. The
-# voice-clone provider reads raw text correctly, and the ASR quality gate
-# (speech_qa) catches real synthesis faults after the fact.
+# speech provider reads raw text correctly, and real faults are handled by
+# reviewing the audio rather than by mangling the input.
 SPEECH_NORMALIZATION_VERSION = "3.0"
 CAPTION_MAX_VISIBLE_UNITS = 28
 CAPTION_MIN_STORIES = 3
@@ -155,8 +156,8 @@ def normalize_spoken_text(text: str) -> str:
     """Return the narration-safe spoken form of authored display text.
 
     Since SPEECH_NORMALIZATION_VERSION 3.0 the spoken form is the canonical
-    display text itself: the voice-clone provider reads acronyms, model codes
-    and Arabic numerals correctly from context, and deterministic expansion
+    display text itself: the speech provider reads acronyms, model codes and
+    Arabic numerals correctly from context, and deterministic expansion
     (``GPU`` -> ``G P U``) only degraded narration.  The function is kept as
     the single normalization entry point so callers never bypass canonical
     spacing/number-separator cleanup.
@@ -169,11 +170,9 @@ def normalize_with_ledger(text: str) -> SpeechNormalization:
     """Canonicalize authored text and return its TTS input form.
 
     ``display_text`` is the reviewed on-screen copy (grouped number
-    separators removed).  ``spoken_text`` equals ``display_text``: TTS input
-    is the raw authored text and any real pronunciation fault is caught after
-    synthesis by the local ASR quality gate (``ai_morning_brief.speech_qa``),
-    which retries the affected voice block instead of silently mangling every
-    acronym in the edition.
+    separators removed).  ``spoken_text`` equals ``display_text``: TTS input is
+    the raw authored text.  Captions borrow real word timings from the local
+    ASR transcription of the rendered audio (``ai_morning_brief.speech_qa``).
     """
 
     raw_display = _clean(text)
@@ -181,8 +180,8 @@ def normalize_with_ledger(text: str) -> SpeechNormalization:
     if not display:
         return SpeechNormalization(display_text="", spoken_text="", rewrites=tuple(), warnings=("empty_text",))
     # Underscore/slash codes (Q4_K_M, en-US, ...) are legitimate display copy:
-    # the voice-clone provider reads them from context and the ASR gate
-    # verifies the result, so they no longer warrant a review warning here.
+    # the speech provider reads them from context, so they no longer warrant a
+    # review warning here.
     return SpeechNormalization(display_text=display, spoken_text=display, rewrites=tuple(), warnings=tuple())
 
 

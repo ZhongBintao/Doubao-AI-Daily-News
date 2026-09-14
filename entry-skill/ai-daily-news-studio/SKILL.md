@@ -70,15 +70,16 @@ OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date $(date +%Y-%m-%d)
 3. 运行任务文件中的校验命令，确保 `editorial_quality_report.json` 的 `status = pass`
 4. 重新运行编排器
 
-#### 交接点 2：语音克隆合成（voice_clone）
+#### 交接点 2：语音合成（voice_clone）
 
-编排器生成 `outputs/YYYY-MM-DD/artifacts/tts_manifest.json`（包含每段的 spoken_text 和保存路径）。
+编排器生成 `outputs/YYYY-MM-DD/artifacts/tts_manifest.json`（包含每段的 spoken_text、音色描述和保存路径）。
 
 你需要：
 1. 读取 `tts_manifest.json`
-2. 对每一段调用 `audio_to_audio_plus`：
-   - `@音频1` = 项目根目录的 `example-audio.mp3`（语音克隆参考）
-   - prompt：`"用参考音频的音色、语速和朗读风格，清晰朗读以下文字，不增删字词，无背景音无杂音：{spoken_text}"`
+2. 对每一段调用 `text_to_audio_plus`（默认模式）：
+   - 音色描述：清单 `voice` 字段（固定文案，逐字使用）
+   - 请求格式：`"{音色描述}"。朗读以下文字："{spoken_text}"`
+   - 若清单 `tts_mode` 为 `voice-clone`：改用 `audio_to_audio_plus`，`@音频1` = 项目根目录 `example-audio.mp3`，prompt 为 `"用参考音频的音色、语速和朗读风格，清晰朗读以下文字，不增删字词，无背景音无杂音：{spoken_text}"`
 3. 将返回的音频保存到清单中指定的 `output_path`
 4. 全部完成后重新运行编排器
 
@@ -87,7 +88,7 @@ OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date $(date +%Y-%m-%d)
 克隆和视频渲染。该版本会跳过来源绑定封面和发布整合包，但仍然生成并校验
 视频。
 
-**注意**：必须严格使用 spoken_text 原文，不增删字词；每段单独合成。
+**注意**：朗读文本必须严格使用 spoken_text 原文（含英文缩写、型号代码、阿拉伯数字，照原样读，不要拆成单字母、不要念成中文数字），不增删字词；每段单独合成。
 
 #### 交接点 3：封面生成（cover）
 
@@ -108,9 +109,10 @@ OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date $(date +%Y-%m-%d)
 
 | 项目 | 配置 |
 |------|------|
-| TTS | 豆包语音克隆（`audio_to_audio_plus` + `example-audio.mp3`） |
-| 参考音频 | 项目根目录 `example-audio.mp3`（29.8秒，随仓库分发） |
-| 字幕 | 比例估算（豆包 TTS 无字级时间戳），文字 100% 来自写稿文案 |
+| TTS | 豆包文生语音（`text_to_audio_plus` + 固定音色描述，含语速） |
+| 音色 | 温柔甜美年轻女声，语速比正常快约 25%（`config.py` 的 `DOUBAO_TTS_VOICE_PROFILE`） |
+| 回退模式 | 语音克隆（`audio_to_audio_plus` + `example-audio.mp3`），加 `--tts-mode voice-clone` |
+| 字幕 | 本地 ASR 实测时间戳（转写失败的段回退比例估算），文字 100% 来自写稿文案 |
 | 封面 | `image_edit` + 风格系统参考图，三种尺寸（16:9 / 3:4 / 9:16） |
 | 截图 | 关闭（`--source-visual-mode off`），视频统一用资讯卡片 |
 | API 密钥 | 不需要，全部使用豆包产品内功能 |

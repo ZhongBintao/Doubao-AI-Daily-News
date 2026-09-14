@@ -11,7 +11,7 @@ Stages
   fetch        AIHOT fetch + selection + freeze                  (automatic)
   editorial    [AGENT] write editorial_plan.json                 (handoff)
   script_tts   generate narration_plan + tts_manifest            (automatic)
-  voice_clone  [AGENT] synthesize segments via audio_to_audio_plus (handoff)
+  speech       [AGENT] synthesize segments via text_to_audio_plus (handoff)
   render       audio finalize + mix + subtitles + HyperFrames    (automatic)
   cover        [AGENT] generate 3 covers via image_edit          (handoff)
   release      release copy + package assembly                    (automatic)
@@ -42,7 +42,8 @@ from .config import (
     DEFAULT_OPENMONTAGE_ROOT,
     DEFAULT_TTS_MODE,
     DEFAULT_VOICE_CLONE_REFERENCE_AUDIO,
-    DOUBAO_VOICE_CLONE_PROVIDER,
+    DOUBAO_PROVIDER,
+    DOUBAO_TTS_VOICE_PROFILE,
     REPO_ROOT,
     env_path,
 )
@@ -73,7 +74,9 @@ STAGE_LABELS: dict[str, str] = {
     "fetch": "AIHOT 素材冻结与选题",
     "editorial": "编辑写稿",
     "script_tts": "旁白脚本与 TTS 清单生成",
-    "voice_clone": "语音克隆合成",
+    # The stage key stays ``voice_clone`` for run_state compatibility with
+    # editions started before the text-to-audio default; only the label changes.
+    "voice_clone": "语音合成",
     "render": "音频混音与视频渲染",
     "cover": "封面生成",
     "release": "发布文案与整合包",
@@ -209,9 +212,16 @@ def run_bootstrap(run_dir: Path, state: dict[str, Any]) -> None:
     except OSError:
         pass
 
-    # 5. Verify reference audio exists.
+    # 5. Reference audio is only needed by the voice-clone fallback; the
+    # default text-to-audio mode carries its voice in DOUBAO_TTS_VOICE_PROFILE.
     ref = DEFAULT_VOICE_CLONE_REFERENCE_AUDIO
-    artifacts["reference_audio"] = {"path": str(ref), "exists": ref.is_file()}
+    artifacts["reference_audio"] = {
+        "path": str(ref),
+        "exists": ref.is_file(),
+        "required_by_mode": "voice-clone",
+        "tts_mode": DEFAULT_TTS_MODE,
+        "voice_profile": DOUBAO_TTS_VOICE_PROFILE,
+    }
 
     _set_stage(state, "bootstrap", status="done", finished_at=_now().isoformat(), artifacts=artifacts)
 
@@ -409,11 +419,14 @@ def run_script_tts(run_dir: Path, state: dict[str, Any], run_date: date) -> None
 
 
 # ---------------------------------------------------------------------------
-# Stage: voice_clone (AGENT HANDOFF)
+# Stage: voice_clone (AGENT HANDOFF — narration synthesis)
 # ---------------------------------------------------------------------------
 
 def run_voice_clone_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
-    """Print handoff instructions for agent-driven voice cloning.
+    """Print handoff instructions for agent-driven narration synthesis.
+
+    The stage key ``voice_clone`` is historical; the handoff follows the mode
+    recorded in ``tts_manifest.json`` (text-to-audio by default).
 
     Returns True if handoff is needed, False if all audio is already complete.
     """
@@ -428,6 +441,12 @@ def run_voice_clone_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     manifest_path = run_dir / "artifacts" / "tts_manifest.json"
     manifest = _read_json(manifest_path) or {}
     segments = manifest.get("segments", [])
+    tts_mode = str(manifest.get("tts_mode") or DEFAULT_TTS_MODE)
+    voice_profile = str(
+        (manifest.get("speech_contract") or {}).get("voice_profile")
+        or manifest.get("voice")
+        or DOUBAO_TTS_VOICE_PROFILE
+    )
     ref = manifest.get("reference_audio") or {}
     ref_path = str(ref.get("path") or DEFAULT_VOICE_CLONE_REFERENCE_AUDIO)
 
@@ -437,14 +456,29 @@ def run_voice_clone_handoff(run_dir: Path, state: dict[str, Any]) -> bool:
     )
     missing_str = ", ".join(missing) if missing else "（首次合成）"
 
+    if tts_mode == "voice-clone":
+        tool_block = (
+            f"  工具: audio_to_audio_plus（语音克隆）\n"
+            f"  参考音频: {ref_path}\n"
+            f"  对每一段执行：\n"
+            f"    1. 调用 audio_to_audio_plus，@音频1 = {ref_path}\n"
+            f"    2. prompt: \"用参考音频的音色、语速和朗读风格，清晰朗读以下文字，不增删字词，无背景音无杂音：{{spoken_text}}\"\n"
+        )
+        header = f"  请完成语音克隆合成（共 {len(segments)} 段，缺失: {missing_str}）：\n"
+    else:
+        tool_block = (
+            f"  工具: text_to_audio_plus（固定音色描述）\n"
+            f"  音色描述（固定，逐字使用）: {voice_profile}\n"
+            f"  对每一段执行：\n"
+            f"    1. 调用 text_to_audio_plus，音色描述用上面这一句\n"
+            f"    2. 请求格式: \"{voice_profile}\"。朗读以下文字：\"{{spoken_text}}\"\n"
+        )
+        header = f"  请完成语音合成（共 {len(segments)} 段，缺失: {missing_str}）：\n"
+
     instructions = (
-        f"  请完成语音克隆合成（共 {len(segments)} 段，缺失: {missing_str}）：\n"
-        f"  参考音频: {ref_path}\n"
-        f"  工具: audio_to_audio_plus\n"
-        f"  对每一段执行：\n"
-        f"    1. 调用 audio_to_audio_plus，@音频1 = {ref_path}\n"
-        f"    2. prompt: \"用参考音频的音色、语速和朗读风格，清晰朗读以下文字，不增删字词，无背景音无杂音：{{spoken_text}}\"\n"
-        f"    3. 将返回的音频保存到 output_path\n"
+        header
+        + tool_block
+        + f"    3. 将返回的音频保存到 output_path\n"
         f"  段落清单：\n{seg_list}\n"
         f"  注意: 朗读文本 = spoken_text 原文（含英文缩写、型号代码、阿拉伯数字，\n"
         f"  直接照读即可，不要拆成单字母、不要念成中文数字）；不增删字词；每段单独合成"
@@ -487,7 +521,7 @@ def run_render(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
         force=True,
         reuse_source=True,
         reuse_audio=True,
-        speech_provider=DOUBAO_VOICE_CLONE_PROVIDER,
+        speech_provider=DOUBAO_PROVIDER,
         source_visual_mode="off",
     )
     status = str(report.get("status", ""))
@@ -765,8 +799,9 @@ def run_report(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
     print(f"  视频: {video_path}")
     print(f"    分辨率: 1920x1080 | 时长: {mins}分{secs}秒 | 大小: {size_mb} MB")
     print(f"  资讯条数: {selected_count} 条")
-    print(f"  语音: 豆包语音克隆 (audio_to_audio_plus + example-audio.mp3)")
-    print(f"  字幕: 比例估算 (文字 100% 来自写稿文案)")
+    print(f"  语音: 豆包文生语音 (text_to_audio_plus)")
+    print(f"    音色: {DOUBAO_TTS_VOICE_PROFILE}")
+    print(f"  字幕: ASR 实测时间戳 (失败段回退比例估算，文字 100% 来自写稿文案)")
     if cover_files:
         print(f"  封面 ({len(cover_files)}/3):")
         for cf in cover_files:

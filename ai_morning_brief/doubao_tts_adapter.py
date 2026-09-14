@@ -2,25 +2,27 @@
 
 Supports two synthesis modes:
 
-  voice-clone    (default) Use audio_to_audio_plus with a reference audio
-                 file (example-audio.mp3) to clone the voice.  Cloud-computer
-                 native production mode.
+  text-to-audio  (default) Use text_to_audio_plus with the fixed natural-
+                 language voice profile from ``config.DOUBAO_TTS_VOICE_PROFILE``
+                 (voice + tempo in one description).  No reference audio.
 
-  text-to-audio  Use text_to_audio_plus with a fixed voice description.
-                 Legacy compatibility mode.
+  voice-clone    Use audio_to_audio_plus with a reference audio file
+                 (example-audio.mp3) to clone the voice.  Kept as an explicit
+                 fallback; the reference clip ships with the repo.
 
 The adapter operates in two phases when used standalone:
 
   prepare   Read the frozen narration plan and emit a synthesis checklist
-            (segment id, spoken text, target WAV path).  The agent then calls
-            the Doubao voice tool once per segment and saves each WAV to the
-            path listed in the checklist.
+            (segment id, spoken text, target WAV path, voice profile).  The
+            agent then calls the Doubao voice tool once per segment and saves
+            each WAV to the path listed in the checklist.
 
   finalize  Verify that every segment audio file exists and is non-empty,
-            normalise it to 48 kHz / 16-bit / mono WAV, read durations with
-            ffprobe, and write ``doubao_audio_manifest.json`` in the same
-            schema as the Gemini manifest so ``pipeline run --reuse-audio
-            --speech-provider doubao[-voice-clone]`` can consume it.
+            normalise it to 48 kHz / 16-bit / mono WAV, apply the optional
+            tempo correction, read durations with ffprobe, and write
+            ``doubao_audio_manifest.json`` in the same schema as the Gemini
+            manifest so ``pipeline run --reuse-audio --speech-provider
+            doubao[-voice-clone]`` can consume it.
 
 When used by the daily orchestrator, ``generate_tts_manifest()`` and
 ``verify_and_finalize()`` are imported directly instead of going through the
@@ -41,18 +43,23 @@ from typing import Any, Mapping
 from .config import (
     DEFAULT_LOCALE,
     DEFAULT_OUTPUT_ROOT,
+    DEFAULT_SPEECH_TEMPO,
     DEFAULT_TTS_MODE,
     DEFAULT_VOICE_CLONE_REFERENCE_AUDIO,
+    DOUBAO_ALIGNMENT_PROVIDER,
+    DOUBAO_PROVIDER,
+    DOUBAO_TTS_VOICE_PROFILE,
     DOUBAO_VOICE_CLONE_ALIGNMENT,
     DOUBAO_VOICE_CLONE_PROVIDER,
+    SPEECH_TEMPO_MAX,
+    SPEECH_TEMPO_MIN,
+    speech_tempo,
 )
 from .media import write_json
 
 DOUBAO_MANIFEST_VERSION = "2.0"
-DOUBAO_PROVIDER = "doubao"
-DOUBAO_ALIGNMENT_PROVIDER = "doubao-proportional"
 TARGET_SAMPLE_RATE = 48000
-VALID_TTS_MODES = ("voice-clone", "text-to-audio")
+VALID_TTS_MODES = ("text-to-audio", "voice-clone")
 
 
 def _run_dir_for_date(run_date: str, output_root: Path = DEFAULT_OUTPUT_ROOT) -> Path:
@@ -150,6 +157,30 @@ def _normalise_wav(source: Path, target: Path) -> None:
         raise RuntimeError(f"ffmpeg normalisation failed for {source.name}: {(result.stderr or '')[-300:]}")
 
 
+def _apply_tempo(source: Path, target: Path, tempo: float) -> None:
+    """Speed narration up/down without changing pitch (ffmpeg ``atempo``).
+
+    Last-resort correction for engines that ignore the tempo instruction in
+    the voice profile.  Durations are measured *after* this step, so captions,
+    scene timing and music boundaries all follow the new length.
+    """
+
+    if not (SPEECH_TEMPO_MIN <= tempo <= SPEECH_TEMPO_MAX) or tempo == 1.0:
+        raise ValueError(f"speech tempo out of range or neutral: {tempo}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            "ffmpeg", "-y", "-v", "error", "-i", str(source),
+            "-filter:a", f"atempo={tempo:g}",
+            "-ar", str(TARGET_SAMPLE_RATE), "-ac", "1",
+            "-c:a", "pcm_s16le", str(target),
+        ],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    if result.returncode != 0 or not target.is_file() or target.stat().st_size <= 0:
+        raise RuntimeError(f"ffmpeg tempo correction failed for {source.name}: {(result.stderr or '')[-300:]}")
+
+
 def _media_duration(path: Path) -> float:
     result = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -206,7 +237,9 @@ def _tts_mode_voice_label(tts_mode: str, reference_info: Mapping[str, Any] | Non
     if tts_mode == "voice-clone":
         ref_name = Path(str((reference_info or {}).get("path") or "")).name
         return f"voice-clone:{ref_name}"
-    return "doubao-in-conversation"
+    # text-to-audio has no voice id: the natural-language profile IS the voice
+    # identity, so the manifest records it verbatim for auditability.
+    return DOUBAO_TTS_VOICE_PROFILE
 
 
 def generate_tts_manifest(
@@ -244,18 +277,21 @@ def generate_tts_manifest(
             "output_path. Prompt: '用参考音频的音色、语速和朗读风格，清晰朗读以下文字，"
             "不增删字词，无背景音无杂音：{spoken_text}'. The text is the raw authored "
             "sentence: keep English acronyms (GPU, RSA-260), model codes and Arabic "
-            "numerals exactly as written — the voice model reads them correctly and "
-            "the local ASR quality gate verifies the result. After all segments are done, "
+            "numerals exactly as written. After all segments are done, "
             "re-run the daily orchestrator (or run 'doubao_tts_adapter finalize')."
         )
     else:
         tool_name = "text_to_audio_plus"
         instructions = (
-            "For each segment below, call the Doubao in-conversation voice synthesis "
-            "tool (text_to_audio_plus) with the spoken_text, then save the returned WAV "
-            "to the exact output_path. Use a neutral Chinese news-reading voice at normal "
-            "speed. Do not add or omit words. After all segments are done, run "
-            "'doubao_tts_adapter finalize --date DATE'."
+            "For each segment below, call the Doubao text_to_audio_plus tool with the "
+            "voice profile and the spoken text, then save the returned WAV to the exact "
+            f"output_path. Voice profile (fixed): '{DOUBAO_TTS_VOICE_PROFILE}'. "
+            "Request format: \"{voice_profile}\"。朗读以下文字：\"{spoken_text}\". "
+            "The text is the raw authored sentence: keep English acronyms (GPU, RSA-260), "
+            "model codes and Arabic numerals exactly as written — do not spell them out "
+            "letter by letter and do not convert numbers to Chinese characters. "
+            "After all segments are done, re-run the daily orchestrator "
+            "(or run 'doubao_tts_adapter finalize')."
         )
 
     manifest = {
@@ -272,7 +308,10 @@ def generate_tts_manifest(
             "canonical_text": "display_text",
             "spoken_equals_display": True,
             "normalization_version": "3.0",
-            "note": "spoken_text is the raw authored display text; pronunciation faults are caught post-synthesis by speech_qa, not by input rewriting",
+            "voice_profile": DOUBAO_TTS_VOICE_PROFILE if tts_mode == "text-to-audio" else None,
+            "reference_audio_required": tts_mode == "voice-clone",
+            "target_tempo": speech_tempo(),
+            "note": "narration is synthesized from the raw authored display text; captions are timed from local ASR word timestamps with per-block proportional fallback",
         },
         "segment_count": len(entries),
         "segments": [
@@ -348,6 +387,22 @@ def verify_and_finalize(
     reference_info = _reference_audio_info(reference_audio) if tts_mode == "voice-clone" else None
     voice_label = _tts_mode_voice_label(tts_mode, reference_info)
 
+    # Tempo correction bookkeeping (see the note at the apply site below).
+    tempo = speech_tempo()
+    tempo_marker_path = run_dir / "artifacts" / ".speech-tempo.json"
+    tempo_marker: dict[str, Any] = {}
+    if tempo_marker_path.is_file():
+        try:
+            loaded = json.loads(tempo_marker_path.read_text(encoding="utf-8"))
+            tempo_marker = dict(loaded) if isinstance(loaded, Mapping) else {}
+        except (OSError, json.JSONDecodeError):
+            tempo_marker = {}
+    if tempo != DEFAULT_SPEECH_TEMPO and tempo_marker.get("tempo") not in (None, tempo):
+        raise RuntimeError(
+            f"narration was already tempo-corrected to {tempo_marker.get('tempo')}; resynthesize "
+            f"the segments before switching the tempo to {tempo}"
+        )
+
     manifest_segments: list[dict[str, Any]] = []
     durations: dict[str, float] = {}
     spoken_durations: dict[str, float] = {}
@@ -374,6 +429,21 @@ def verify_and_finalize(
             staging.replace(raw_path)
         finally:
             staging.unlink(missing_ok=True)
+
+        # Optional last-resort tempo correction (AI_BRIEF_SPEECH_TEMPO, default
+        # off).  Applied before durations are measured so captions, scene
+        # timing and music boundaries all follow the corrected length.
+        # ``atempo`` is NOT idempotent, so a run-level marker records what has
+        # already been applied: re-running finalize must never speed the audio
+        # up twice, and changing the tempo after the fact requires a fresh
+        # synthesis pass.
+        if tempo != DEFAULT_SPEECH_TEMPO and tempo_marker.get("tempo") != tempo:
+            tempo_staging = raw_path.with_suffix(".tempo.wav")
+            try:
+                _apply_tempo(raw_path, tempo_staging, tempo)
+                tempo_staging.replace(raw_path)
+            finally:
+                tempo_staging.unlink(missing_ok=True)
 
         duration = _media_duration(raw_path)
         minimum = float(entry.get("minimum_duration_seconds") or 0.0)
@@ -419,12 +489,15 @@ def verify_and_finalize(
         "provider": provider,
         "tts_mode": tts_mode,
         "voice": voice_label,
+        "voice_profile": DOUBAO_TTS_VOICE_PROFILE if tts_mode == "text-to-audio" else None,
+        "speech_tempo": tempo,
         "locale": DEFAULT_LOCALE,
         "reference_audio": reference_info,
         "tts_settings": {
-            "canonical_text": "spoken_text",
+            "canonical_text": "display_text",
             "alignment_provider": alignment,
             "alignment_quality": "approximate",
+            "tempo_correction_applied": tempo != DEFAULT_SPEECH_TEMPO,
         },
         "segments": manifest_segments,
         "audio": {
@@ -456,6 +529,15 @@ def verify_and_finalize(
 
     manifest_path = run_dir / "artifacts" / "doubao_audio_manifest.json"
     write_json(manifest_path, manifest)
+    if tempo != DEFAULT_SPEECH_TEMPO:
+        # Records that the narration on disk has already been sped up, so a
+        # repeated finalize (e.g. after a render failure) cannot apply atempo
+        # twice to the same files.
+        write_json(tempo_marker_path, {
+            "tempo": tempo,
+            "segments": [entry["segment_id"] for entry in manifest_segments],
+            "note": "narration audio on disk already includes this tempo correction; resynthesize before changing it",
+        })
     return manifest
 
 
@@ -474,6 +556,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     if tts_mode == "voice-clone":
         ref = manifest.get("reference_audio") or {}
         print(f"Reference audio: {ref.get('path')} (exists={ref.get('exists')}, duration={ref.get('duration_seconds')}s)")
+    else:
+        print(f"Voice profile: {manifest.get('voice')}")
     print()
     for entry in manifest["segments"]:
         path = Path(entry["output_path"])

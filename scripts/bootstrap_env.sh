@@ -148,16 +148,15 @@ else
   warn "未找到 .user_skills 目录，跳过 skill 同步：$USER_SKILLS"
 fi
 
-# --- 6b. 语音克隆参考音频检查 ----------------------------------------------
-# example-audio.mp3 随仓库分发，是语音克隆的音色参考。云电脑重置后
-# git pull 即可恢复。如果缺失则警告（不阻断，因为 text-to-audio 模式
-# 仍可作为备选）。
+# --- 6b. 语音克隆参考音频检查（仅 voice-clone 回退模式需要）-----------------
+# 默认的 text-to-audio 模式不需要参考音频；example-audio.mp3 只在显式
+# 回退到语音克隆时使用。缺失不阻断（默认模式照常运行）。
 REF_AUDIO="$PROJECT_DIR/example-audio.mp3"
 if [ -f "$REF_AUDIO" ]; then
   REF_SIZE=$(stat -c%s "$REF_AUDIO" 2>/dev/null || stat -f%z "$REF_AUDIO" 2>/dev/null || echo 0)
   info "参考音频: example-audio.mp3 ($((REF_SIZE / 1024)) KB)"
 else
-  warn "参考音频 example-audio.mp3 缺失，语音克隆将不可用（git pull 可恢复）"
+  warn "参考音频 example-audio.mp3 缺失（仅 voice-clone 回退模式需要；默认 text-to-audio 不受影响）"
 fi
 
 # --- 6c. 磁盘空间检查 -------------------------------------------------------
