@@ -57,9 +57,14 @@ DEFAULT_AZURE_TTS_TEMPERATURE = 0.7
 # Doubao in-conversation speech synthesis (cloud-computer native production
 # voice).  Two modes are supported and share the same pipeline:
 #
-#   text-to-audio  (default)  ``text_to_audio_plus`` with the natural-language
+#   text-to-audio             ``text_to_audio_plus`` with the natural-language
 #                             voice profile below.  No reference audio needed.
-#   voice-clone    (fallback) ``audio_to_audio_plus`` with a reference clip.
+#   voice-clone    (default on this branch) ``audio_to_audio_plus`` with a
+#                             reference clip.
+#
+# This branch is the voice-clone rollback pointer: it is byte-identical to
+# feat/tts-text-to-audio apart from ``DEFAULT_TTS_MODE`` below.  Both modes
+# remain fully supported on either branch (``--tts-mode`` overrides).
 #
 # The voice profile is the single source of truth for the narration voice and
 # its tempo: it is embedded in ``tts_manifest.json``, the agent handoff and the
@@ -69,7 +74,7 @@ DOUBAO_TTS_VOICE_PROFILE = (
     "年轻女性，声音温柔甜美，语速比正常快约 25%，咬字清晰有节奏感，"
     "情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声"
 )
-DEFAULT_TTS_MODE = "text-to-audio"
+DEFAULT_TTS_MODE = "voice-clone"
 DOUBAO_PROVIDER = "doubao"
 DOUBAO_ALIGNMENT_PROVIDER = "doubao-proportional"
 
