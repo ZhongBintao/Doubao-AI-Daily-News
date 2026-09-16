@@ -31,6 +31,9 @@ from .config import (
     DEFAULT_SOURCE_CONTRACT,
     DEFAULT_AIHOT_SKILL_VERSION,
     DEFAULT_SHOW_NAME,
+    OUTPUT_TEMPO_MAX,
+    OUTPUT_TEMPO_MIN,
+    output_tempo,
     env_path,
 )
 from .editorial import (
@@ -48,7 +51,7 @@ from .writing import (
     write_writing_request,
 )
 from .materialize import materialize
-from .media import MediaError, write_json
+from .media import MediaError, media_duration, run_command, write_json
 from .models import SourceItem
 from .openmontage_bridge import OpenMontageError, probe_video, render_hyperframes, reuse_synthesized_audio, synthesize_and_align
 from .speech import run_tts_benchmark
@@ -397,6 +400,132 @@ def _preflight(openmontage_root: Path, *, prepare_only: bool, speech_provider: s
         # doubao TTS adapter (or the daily orchestrator), then the pipeline runs
         # with --reuse-audio --speech-provider doubao[-voice-clone].
     return result
+
+
+def _speed_up_video(source: Path, target: Path, tempo: float) -> None:
+    """Re-encode the final cut at ``tempo`` speed with the pitch preserved.
+
+    Video frames and audio are sped up together (``setpts`` + ``atempo``), so
+    the captions burned into the picture ride along automatically.  ``fps``
+    pins the output to a standard 30 fps: ``setpts`` alone would emit a
+    non-standard 37.5 fps time base at 1.25x, and the source is a slideshow
+    style edit where discarding the surplus frames is invisible.  ``atempo``
+    keeps the voice pitch intact rather than chipmunking it.
+    """
+
+    if not (OUTPUT_TEMPO_MIN <= tempo <= OUTPUT_TEMPO_MAX) or tempo == 1.0:
+        raise ValueError(f"final-cut tempo out of range or neutral: {tempo}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    result = run_command([
+        "ffmpeg", "-y", "-v", "error", "-i", str(source),
+        "-filter:v", f"setpts=PTS/{tempo:g},fps=30",
+        "-filter:a", f"atempo={tempo:g}",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        str(target),
+    ], timeout=1800)
+    if result.returncode != 0 or not target.is_file() or target.stat().st_size == 0:
+        raise MediaError(f"final-cut speed-up failed: {(result.stderr or '')[-300:]}")
+
+
+_SRT_TIME_RE = re.compile(
+    r"(?P<h>\d{2}):(?P<m>\d{2}):(?P<s>\d{2}),(?P<ms>\d{3})\s*-->\s*"
+    r"(?P<h2>\d{2}):(?P<m2>\d{2}):(?P<s2>\d{2}),(?P<ms2>\d{3})"
+)
+
+
+def _srt_timestamp(seconds: float) -> str:
+    millis = max(0, int(round(seconds * 1000)))
+    hours, remainder = divmod(millis, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    secs, ms = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{ms:03d}"
+
+
+def _scale_srt_timestamps(path: Path, tempo: float) -> None:
+    """Rescale a standalone SRT by ``1/tempo`` so it matches the sped-up cut.
+
+    Burned-in captions follow the frames automatically; this keeps the sidecar
+    subtitle file consistent.  ``write_subtitles`` regenerates the SRT on every
+    render, so the rescale always starts from a natural-speed file and cannot
+    accumulate across runs.
+    """
+
+    if not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8")
+
+    def rescale(match: re.Match[str]) -> str:
+        start = (
+            int(match.group("h")) * 3600 + int(match.group("m")) * 60
+            + int(match.group("s")) + int(match.group("ms")) / 1000
+        )
+        end = (
+            int(match.group("h2")) * 3600 + int(match.group("m2")) * 60
+            + int(match.group("s2")) + int(match.group("ms2")) / 1000
+        )
+        return f"{_srt_timestamp(start / tempo)} --> {_srt_timestamp(end / tempo)}"
+
+    updated = _SRT_TIME_RE.sub(rescale, text)
+    if updated != text:
+        path.write_text(updated, encoding="utf-8")
+
+
+def _apply_final_cut_tempo(project_dir: Path, staged_output: Path) -> dict[str, Any]:
+    """Speed up the staged final cut; degrade to 1.0x with a recorded warning.
+
+    Returns the ``quality_report.checks.output_tempo`` fragment.  A failed
+    speed-up never discards a finished render — the natural-speed cut is
+    delivered and the failure is recorded, so nobody mistakes it for a
+    successful 1.25x delivery.
+    """
+
+    requested = output_tempo()
+    report: dict[str, Any] = {
+        "requested": requested,
+        "applied": False,
+        "status": "disabled" if requested == 1.0 else "pending",
+        "source_duration_seconds": None,
+        "output_duration_seconds": None,
+        "srt_rescaled": False,
+    }
+    if requested == 1.0:
+        return report
+    try:
+        source_duration = media_duration(staged_output)
+    except MediaError as exc:
+        report["status"] = "failed"
+        report["error"] = f"could not measure the rendered cut: {str(exc)[:200]}"
+        print(f"  [WARN] 成片加速跳过：{report['error']}", file=sys.stderr)
+        return report
+    report["source_duration_seconds"] = round(source_duration, 3)
+
+    sped = staged_output.with_name(f".{staged_output.stem}-tempo{requested:g}.mp4")
+    try:
+        _speed_up_video(staged_output, sped, requested)
+        os.replace(sped, staged_output)
+    except (MediaError, ValueError) as exc:
+        sped.unlink(missing_ok=True)
+        report["status"] = "failed"
+        report["error"] = str(exc)[:300]
+        print(
+            f"  [WARN] 成片 {requested:g}x 加速失败，降级交付 1.0x 成片：{report['error']}",
+            file=sys.stderr,
+        )
+        return report
+    try:
+        report["output_duration_seconds"] = round(media_duration(staged_output), 3)
+    except MediaError:
+        report["output_duration_seconds"] = None
+    try:
+        _scale_srt_timestamps(project_dir / "assets" / "subtitles" / "subtitles.srt", requested)
+        report["srt_rescaled"] = True
+    except OSError as exc:
+        report["srt_error"] = str(exc)[:200]
+    report["applied"] = True
+    report["status"] = "applied"
+    return report
 
 
 def run_pipeline(
@@ -824,6 +953,11 @@ def run_pipeline(
         if overflow_findings:
             selectors = [str(finding.get("selector") or "unknown") for finding in overflow_findings[:8]]
             raise OpenMontageError(f"final-frame text overflow detected: {selectors}")
+        # Delivery pace: speed the finished cut up as one piece (video frames
+        # plus audio, pitch preserved) so the burned-in captions stay in sync
+        # for free.  Runs before the quality probe so the reported duration,
+        # hash and specs all describe the file that actually ships.
+        tempo_report = _apply_final_cut_tempo(run_dir, staging_output)
         current_stage = "quality"
         probe = probe_video(staging_output)
         duration = float((probe.get("format") or {}).get("duration") or 0)
@@ -907,6 +1041,7 @@ def run_pipeline(
                     "layout_report": layout_report,
                 },
                 "template_contract": template_contract,
+                "output_tempo": tempo_report,
             },
         }
         output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,6 @@
 ---
 name: ai-daily-news-studio
-description: 每日自动生成 AI 每日早报视频（1920×1080 MP4，含语音克隆人声、背景音乐、字幕、3种尺寸封面、发布文案）。支持 AIHOT 稀疏日的七天未播回退和无新闻状态短报。触发词：AI 每日早报、AI早报、生成早报、每日新闻视频、今天的早报。云电脑原生，单入口编排，自动断点续跑，语音克隆音色。
+description: 每日自动生成 AI 每日早报视频（1920×1080 MP4，含豆包文生语音人声、背景音乐、字幕、3种尺寸封面、发布文案），成片统一 1.25x 提速。支持 AIHOT 稀疏日的七天未播回退和无新闻状态短报。触发词：AI 每日早报、AI早报、生成早报、每日新闻视频、今天的早报。云电脑原生，单入口编排，自动断点续跑。
 metadata:
   author: ZhongBintao
   version: "2.0.0"
@@ -109,8 +109,9 @@ OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date $(date +%Y-%m-%d)
 
 | 项目 | 配置 |
 |------|------|
-| TTS | 豆包文生语音（`text_to_audio_plus` + 固定音色描述，含语速） |
-| 音色 | 温柔甜美年轻女声，语速比正常快约 25%（`config.py` 的 `DOUBAO_TTS_VOICE_PROFILE`） |
+| TTS | 豆包文生语音（`text_to_audio_plus` + 固定音色描述，只描述音色） |
+| 音色 | 温柔甜美年轻女声（`config.py` 的 `DOUBAO_TTS_VOICE_PROFILE`，不加语速指令） |
+| 成片语速 | 渲染完成后整片加速 1.25x（`DEFAULT_OUTPUT_TEMPO`，画面+音频同步，音高不变） |
 | 回退模式 | 语音克隆（`audio_to_audio_plus` + `example-audio.mp3`），加 `--tts-mode voice-clone` |
 | 字幕 | 本地 ASR 实测时间戳（转写失败的段回退比例估算），文字 100% 来自写稿文案 |
 | 封面 | `image_edit` + 风格系统参考图，三种尺寸（16:9 / 3:4 / 9:16） |

@@ -801,6 +801,17 @@ def run_report(run_dir: Path, state: dict[str, Any], run_date: date) -> None:
     print(f"  资讯条数: {selected_count} 条")
     print(f"  语音: 豆包文生语音 (text_to_audio_plus)")
     print(f"    音色: {DOUBAO_TTS_VOICE_PROFILE}")
+    tempo = ((quality.get("checks") or {}).get("output_tempo") or {})
+    if tempo:
+        requested = tempo.get("requested")
+        if tempo.get("applied"):
+            source_seconds = tempo.get("source_duration_seconds")
+            suffix = f"（原始 {source_seconds:.1f}s）" if isinstance(source_seconds, (int, float)) else ""
+            print(f"  成片语速: {requested:g}x 已应用{suffix}")
+        elif tempo.get("status") == "disabled":
+            print(f"  成片语速: 1.0x（未启用加速）")
+        else:
+            print(f"  成片语速: {requested:g}x 加速失败，已降级交付 1.0x —— {tempo.get('error')}")
     print(f"  字幕: ASR 实测时间戳 (失败段回退比例估算，文字 100% 来自写稿文案)")
     if cover_files:
         print(f"  封面 ({len(cover_files)}/3):")
