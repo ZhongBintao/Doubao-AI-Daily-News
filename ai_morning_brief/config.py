@@ -66,12 +66,12 @@ DEFAULT_AZURE_TTS_TEMPERATURE = 0.7
 # feat/tts-text-to-audio apart from ``DEFAULT_TTS_MODE`` below.  Both modes
 # remain fully supported on either branch (``--tts-mode`` overrides).
 #
-# The voice profile is the single source of truth for the narration voice and
-# its tempo: it is embedded in ``tts_manifest.json``, the agent handoff and the
+# The voice profile is the single source of truth for the narration voice: it
+# is embedded in ``tts_manifest.json``, the agent handoff and the
 # ``ai-brief-doubao-voice`` skill, so changing the voice never requires editing
-# three places by hand.
+# three places by hand.  Delivery pace is handled separately (DEFAULT_OUTPUT_TEMPO).
 DOUBAO_TTS_VOICE_PROFILE = (
-    "年轻女性，声音温柔甜美，语速比正常快约 25%，咬字清晰有节奏感，"
+    "年轻女性，声音温柔甜美，咬字清晰有节奏感，"
     "情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声"
 )
 DEFAULT_TTS_MODE = "voice-clone"
@@ -86,29 +86,30 @@ DEFAULT_VOICE_CLONE_REFERENCE_AUDIO = REPO_ROOT / "example-audio.mp3"
 DOUBAO_VOICE_CLONE_PROVIDER = "doubao-voice-clone"
 DOUBAO_VOICE_CLONE_ALIGNMENT = "doubao-voice-clone-proportional"
 
-# Last-resort tempo correction, OFF by default (1.0).
-# The voice profile already asks the model for a faster delivery.  If a given
-# engine ignores that instruction, setting AI_BRIEF_SPEECH_TEMPO=1.25 speeds up
-# each normalized narration block with ffmpeg's pitch-preserving ``atempo``;
-# every downstream duration, caption and music boundary follows the new
-# length automatically because durations are measured from the final audio.
-DEFAULT_SPEECH_TEMPO = 1.0
-SPEECH_TEMPO_MIN = 0.5
-SPEECH_TEMPO_MAX = 2.0
+# Final-cut tempo.  Asking the TTS to speak faster through its prompt made the
+# voice timbre unstable, so pacing is applied once to the rendered video
+# instead: video frames and audio are sped up together, pitch preserved.  The
+# burned-in captions ride along automatically; the standalone SRT is rescaled
+# by the same factor.  Set AI_BRIEF_OUTPUT_TEMPO=1.0 to deliver at natural
+# speed.  On failure the pipeline degrades to a 1.0x cut and records a warning
+# in the quality report instead of failing the whole render.
+DEFAULT_OUTPUT_TEMPO = 1.25
+OUTPUT_TEMPO_MIN = 1.0
+OUTPUT_TEMPO_MAX = 2.0
 
 
-def speech_tempo() -> float:
-    """Return the configured narration tempo multiplier (1.0 = untouched)."""
+def output_tempo() -> float:
+    """Return the final-cut speed multiplier (1.0 = deliver at natural speed)."""
 
-    raw = os.environ.get("AI_BRIEF_SPEECH_TEMPO")
+    raw = os.environ.get("AI_BRIEF_OUTPUT_TEMPO")
     if not raw:
-        return DEFAULT_SPEECH_TEMPO
+        return DEFAULT_OUTPUT_TEMPO
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        return DEFAULT_SPEECH_TEMPO
-    if not (SPEECH_TEMPO_MIN <= value <= SPEECH_TEMPO_MAX):
-        return DEFAULT_SPEECH_TEMPO
+        return DEFAULT_OUTPUT_TEMPO
+    if not (OUTPUT_TEMPO_MIN <= value <= OUTPUT_TEMPO_MAX):
+        return DEFAULT_OUTPUT_TEMPO
     return value
 
 # Optional source-visual mode is deliberately off by default. These values are

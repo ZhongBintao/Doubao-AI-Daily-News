@@ -1,21 +1,23 @@
 ---
 name: ai-brief-doubao-voice
-description: Synthesize AI每日早报 narration audio with Doubao in-conversation TTS (text_to_audio_plus + fixed "温柔甜美" voice profile by default, audio_to_audio_plus voice cloning as fallback), ASR-measured subtitle timing with per-block proportional fallback, and OpenMontage loudness mixing. v3.0 restores text-to-audio as the production default.
+description: Synthesize AI每日早报 narration audio with Doubao in-conversation TTS (text_to_audio_plus + fixed "温柔甜美" voice profile, timbre only — no tempo instruction; audio_to_audio_plus voice cloning as fallback), ASR-measured subtitle timing with per-block proportional fallback, OpenMontage loudness mixing, and a 1.25x final-cut speed-up applied after rendering.
 metadata:
   author: local-project
-  version: "3.0.0"
+  version: "3.1.0"
 ---
 
 # AI早报语音合成（豆包文生语音版）
 
 v3.0 把生产默认切回 `text_to_audio_plus` + 固定音色描述；`audio_to_audio_plus` 语音克隆保留为显式回退。字幕从"比例估算"升级为"本地 ASR 实测时间戳（失败段按块回退比例）"。
 
+v3.1：音色描述只描述音色、**不含语速**（语速指令会让音色不稳定），成片节奏改由渲染后统一加速 1.25x 实现。
+
 ## 模式对照
 
 | 维度 | v1.x 豆包描述式 | v2.0 豆包语音克隆 | v3.0 豆包文生语音（当前默认） |
 |------|----------------|------------------|------------------------------|
 | TTS 工具 | `text_to_audio_plus` | `audio_to_audio_plus` | `text_to_audio_plus` |
-| 音色 | 固定文字描述 | 参考音频 `example-audio.mp3` | 固定文字描述（含语速） |
+| 音色 | 固定文字描述 | 参考音频 `example-audio.mp3` | 固定文字描述（仅音色，不含语速） |
 | 参考音频 | 不需要 | 必需 | 不需要 |
 | 字幕对齐 | 比例估算 | 比例估算 | 本地 ASR 实测时间戳（回退比例） |
 | provider | `doubao` | `doubao-voice-clone` | `doubao` |
@@ -29,21 +31,19 @@ v3.0 把生产默认切回 `text_to_audio_plus` + 固定音色描述；`audio_to
 所有 segment 的 TTS 生成必须使用以下描述，**逐字使用、不修改**（单一来源见
 `ai_morning_brief/config.py` 的 `DOUBAO_TTS_VOICE_PROFILE`）：
 
-> 年轻女性，声音温柔甜美，语速比正常快约 25%，咬字清晰有节奏感，情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声
+> 年轻女性，声音温柔甜美，咬字清晰有节奏感，情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声
 
-如需微调音色或语速，只修改 `config.py` 中的这一个常量；`tts_manifest.json`、交接指令和本文件都引用同一处，不会出现三处不一致。
+描述里**不要加入语速指令**：实测表明提示词调节语速会让音色变得不稳定。如需微调音色，只修改 `config.py` 中的这一个常量；`tts_manifest.json`、交接指令和本文件都引用同一处，不会出现三处不一致。
 
-### 语速说明
+### 成片语速（1.25x，渲染阶段统一加速）
 
-语速由上面描述里的"语速比正常快约 25%"控制——豆包语音合成 2.0 支持自然语言指令控制语速（官方三级语速：慢速/正常/快速，也支持"比正常快 25%"这类细粒度表达）。
+成片节奏不靠 TTS 提示词，而是在**渲染完成后对整条成片提速 1.25 倍**（`config.py` 的 `DEFAULT_OUTPUT_TEMPO`）：
 
-如果某次实测发现语速没有生效，用兜底开关（无需改代码）：
-
-```bash
-export AI_BRIEF_SPEECH_TEMPO=1.25   # 默认 1.0（不处理）
-```
-
-`finalize` 会用 ffmpeg `atempo` 对各段旁白做保音高的加速，时长重新实测，字幕、画面节奏与音乐边界全部自动跟随。该开关有幂等保护：重复运行 `finalize` 不会二次加速；改数值需先重新合成。
+- 位置：HyperFrames 渲染出成片之后、质量检测之前，因此质量报告里的时长与哈希都是最终交付文件
+- 实现：ffmpeg `setpts=PTS/1.25,fps=30` + `atempo=1.25`——画面与音频一起加速，**音高保持不变**
+- 烧录字幕随画面自动同步；外挂 `assets/subtitles/subtitles.srt` 的时间戳由流水线按同一倍率重写
+- 如需按自然速度交付：`export AI_BRIEF_OUTPUT_TEMPO=1.0`
+- 加速失败时**不会**丢弃已渲染的成片：降级交付 1.0x，并在 `quality_report.json` 的 `checks.output_tempo` 与终端日志中记录失败原因
 
 ## 完整流程
 
@@ -96,15 +96,15 @@ finalize 自动完成：
 
 1. 验证所有 segment 音频存在且非空
 2. 用 ffmpeg 统一转为 48kHz / 16bit / mono WAV
-3. 若设置了 `AI_BRIEF_SPEECH_TEMPO`（且非 1.0），对旁白做保音高加速
-4. 短段落用尾部静音填充到 `minimum_duration_seconds`
-5. 读取每段实际时长
-6. 生成 `artifacts/doubao_audio_manifest.json`：
+3. 短段落用尾部静音填充到 `minimum_duration_seconds`
+4. 读取每段实际时长
+5. 生成 `artifacts/doubao_audio_manifest.json`：
    - `provider`: `"doubao"`（text-to-audio）/ `"doubao-voice-clone"`
    - `voice` / `voice_profile`: 固定音色描述
-   - `speech_tempo`: 实际使用的语速倍率
    - `alignment_provider`: `"doubao-proportional"` / `"doubao-voice-clone-proportional"`
    - `native_word_boundary`: `false`
+
+（成片语速不在这里处理，见"成片语速"章节。）
 
 ### 第 5 步：视频渲染（复用音频）
 
@@ -149,7 +149,7 @@ v3.0 起 `spoken_text` 恒等于 `display_text`（屏幕原文）：数字、缩
 
 - 不调用任何外部 TTS API（Azure、Google、ElevenLabs 等），不需要 API 密钥
 - 默认使用 `text_to_audio_plus` + 固定音色描述；语音克隆为显式回退
-- 不修改生成的音频内容（只做格式归一化与静音填充；语速兜底开关除外）
+- 不修改生成的音频内容（只做格式归一化与静音填充）；节奏只在渲染完成后对成片统一加速
 - 不使用语音识别结果替换写稿文案作为字幕
 - 每段音频单独合成，不合并；音色描述固定，不随 segment 变化
 - 失败的 segment 不阻塞其他段，最后统一报告
@@ -159,5 +159,5 @@ v3.0 起 `spoken_text` 恒等于 `display_text`（屏幕原文）：数字、缩
 - TTS 调用失败 → 记录 segment_id，重试 1 次，仍失败则报告并等待用户决定
 - `finalize` 报某段音频缺失 → 回到第 2 步补合成
 - 某段时长异常（过短/过长）→ 检查该段 `spoken_text`，必要时重新合成
-- 语速不理想 → 先确认音色描述里的语速文案已生效；仍不理想再启用 `AI_BRIEF_SPEECH_TEMPO` 兜底
+- 成片节奏不理想 → 调整 `DEFAULT_OUTPUT_TEMPO`（1.0–2.0），或 `export AI_BRIEF_OUTPUT_TEMPO=1.0` 按自然速度交付
 - 字幕与配音偏差明显 → 检查该段 `artifacts/alignments/<segment_id>.json` 是否存在；缺失的段属正常比例回退
