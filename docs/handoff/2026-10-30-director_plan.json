@@ -1,0 +1,62 @@
+{
+  "version": "6.0",
+  "writer": {"source": "agent", "note": "headline: open-weights 1T model (daily lead); flashes chosen for broad interest"},
+  "picks": {
+    "headlines": ["upsd8u37hkkquohy3w3sjvszi"],
+    "flashes": ["wry19y87ktlbmfwu581jjffj7", "lq97h52ctxw2nkri4qqxj5lbx", "dmi67weoeety92021tvuyf1hs"]
+  },
+  "hook": {
+    "text": "Mistral 把 【1T】 参数大模型开源了",
+    "keyfact": "Mistral Large 4 登陆 Hugging Face，总参数约 1T，激活 49B。"
+  },
+  "stories": [
+    {
+      "item_id": "upsd8u37hkkquohy3w3sjvszi",
+      "role": "headline",
+      "subject": "Mistral AI",
+      "title": "Mistral Large 4 开源：1T 参数 MoE 模型",
+      "cards": [
+        {"label": "规模", "headline": "总参数约 1T", "body": "多模态多语言 MoE 架构，总参数约 【1T】，激活 49B。"},
+        {"label": "上下文", "headline": "1M token 上下文窗口", "body": "上下文窗口为 【1M】 token。"},
+        {"label": "生态", "headline": "量化版可本地运行", "body": "Unsloth 推出 1-bit GGUF 量化版，vLLM 也已提供 Day 0 支持。"}
+      ],
+      "narration": [
+        {"text": "Mistral Large 4 已经登陆 Hugging Face，开放权重。", "card": 1},
+        {"text": "它是多模态 MoE 模型，总参数约 1T，激活 49B。", "card": 1},
+        {"text": "上下文窗口达到 1M token。", "card": 2},
+        {"text": "Unsloth 已经推出 1-bit 量化版，可以在本地运行。", "card": 3},
+        {"text": "vLLM 也在首日提供了支持。", "card": 3}
+      ]
+    },
+    {
+      "item_id": "wry19y87ktlbmfwu581jjffj7",
+      "role": "flash",
+      "subject": "Google",
+      "title": "Google 三季度搜索增速不及预期",
+      "point": "搜索收入增长约 12%，低于分析师预期的 15%，市值一度缩水最多 10%。",
+      "narration": [
+        {"text": "Google 三季度搜索收入增长约 12%，低于预期，市值一度缩水最多 10%。"}
+      ]
+    },
+    {
+      "item_id": "lq97h52ctxw2nkri4qqxj5lbx",
+      "role": "flash",
+      "subject": "NVIDIA",
+      "title": "纽约时报：中国情报人员瞄准黄仁勋",
+      "point": "据《纽约时报》报道，美国情报机构认为黄仁勋身边一名高管为中国提供情报。",
+      "narration": [
+        {"text": "据《纽约时报》报道，美国情报机构认为黄仁勋身边一名高管为中国提供情报。"}
+      ]
+    },
+    {
+      "item_id": "dmi67weoeety92021tvuyf1hs",
+      "role": "flash",
+      "subject": "Trakkr",
+      "title": "AI 给的统计数据，仅 40% 溯源一致",
+      "point": "追踪 1285 条 AI 引用统计，40% 无法核查，11% 无处可溯。",
+      "narration": [
+        {"text": "Trakkr 追踪 1285 条 AI 引用的统计，只有 40% 能追到一致的研究。"}
+      ]
+    }
+  ]
+}
