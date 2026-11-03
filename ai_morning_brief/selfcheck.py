@@ -37,8 +37,13 @@ def _not_blank(path: Path) -> bool:
 
 
 def contact_sheet(frames: list[tuple[str, Path]], out: Path) -> None:
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageFont
 
+    font_path = C.FONT_CACHE_DIR / C.FONT_FILENAME
+    try:
+        font = ImageFont.truetype(str(font_path), 20) if font_path.is_file() else ImageFont.load_default()
+    except OSError:
+        font = ImageFont.load_default()
     images = [(label, Image.open(p).convert("RGB")) for label, p in frames if p.is_file()]
     if not images:
         return
@@ -50,7 +55,7 @@ def contact_sheet(frames: list[tuple[str, Path]], out: Path) -> None:
     for i, (label, image) in enumerate(images):
         x, y = 12 + (i % cols) * (w + 12), 12 + (i // cols) * (h + 44)
         sheet.paste(image, (x, y + 30))
-        draw.text((x, y + 6), label, fill=(230, 230, 230))
+        draw.text((x, y + 4), label, fill=(230, 230, 230), font=font)
     sheet.save(out)
 
 

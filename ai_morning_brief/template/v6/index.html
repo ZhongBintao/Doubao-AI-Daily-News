@@ -89,7 +89,7 @@ html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--
 .cap { position: absolute; left: 0; right: 0; top: 0; text-align: center; opacity: 0; visibility: hidden; }
 .cap span { font: 800 46px/1.5 var(--font); color: #fff; background: rgba(32,40,43,.93); padding: 8px 20px; border-radius: 12px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 
-.hook-title, .story-title, .keyfact p, .flash-card p, .cap { text-wrap: balance; }
+.hook-title, .story-title, .keyfact p, .flash-card p, .card p, .cap { text-wrap: balance; }
 .w { white-space: nowrap; }
 </style>
 </head>
@@ -108,13 +108,20 @@ __BODY__
   const self = document.getElementById("layout-script");
   const seg = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("zh", { granularity: "word" }) : null;
   const ASCII = /^[A-Za-z0-9.\-+%#_/]+$/, NUMERAL = /^([0-9]+(\.[0-9]+)?|[一二三四五六七八九十百千万两几]+)$/, MEASURE = /^[个款家倍条项位名亿万次年月日天层份张]$/;
+  const PUNCT = /^[，。！？、：；,.!?:;”’）)》」』%％]+$/, HAN1 = /^[一-鿿]$/;
   const words = (text) => {
     if (!seg) return [text];
     const out = [];
+    let pairOpen = false;  // the last pushed word is a single Han char that may pair with the next one
     for (const { segment } of seg.segment(text)) {
       const prev = out[out.length - 1];
-      if (prev && !/\s/.test(segment) && ((ASCII.test(prev) && ASCII.test(segment)) || (NUMERAL.test(prev) && MEASURE.test(segment)))) out[out.length - 1] = prev + segment;
-      else out.push(segment);
+      if (prev && !/\s/.test(segment) && ((ASCII.test(prev) && ASCII.test(segment)) || (NUMERAL.test(prev) && MEASURE.test(segment)) || PUNCT.test(segment))) {
+        out[out.length - 1] = prev + segment; pairOpen = false; continue;
+      }
+      // ICU's Chinese dictionary misses many tech words (开源, 九个…): pair up runs of single Han characters.
+      if (prev && pairOpen && HAN1.test(segment)) { out[out.length - 1] = prev + segment; pairOpen = false; continue; }
+      out.push(segment);
+      pairOpen = HAN1.test(segment);
     }
     return out;
   };

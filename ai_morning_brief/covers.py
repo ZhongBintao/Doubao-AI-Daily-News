@@ -51,11 +51,11 @@ h1 em { font-style: normal; color: #cf704a; }
 FIT_JS = """
 (function(){
   const seg = Intl.Segmenter ? new Intl.Segmenter("zh", {granularity: "word"}) : null;
-  const ASCII = /^[A-Za-z0-9.\\-+%#_/]+$/;
-  const wrap = (el) => { if (!seg) return; [...el.childNodes].forEach((c) => { if (c.nodeType === 3) { const f = document.createDocumentFragment(); let prev = null;
-    for (const {segment} of seg.segment(c.textContent)) { if (/^\\s+$/.test(segment)) { f.appendChild(document.createTextNode(segment)); prev = null; continue; }
-      if (prev && ASCII.test(prev.textContent) && ASCII.test(segment)) { prev.textContent += segment; continue; }
-      const s = document.createElement("span"); s.className = "w"; s.textContent = segment; f.appendChild(s); prev = s; } c.replaceWith(f); } else if (c.nodeType === 1) wrap(c); }); };
+  const ASCII = /^[A-Za-z0-9.\\-+%#_/]+$/, PUNCT = /^[，。！？、：；,.!?:;”’）)》%％]+$/, HAN1 = /^[\\u4e00-\\u9fff]$/;
+  const wrap = (el) => { if (!seg) return; [...el.childNodes].forEach((c) => { if (c.nodeType === 3) { const f = document.createDocumentFragment(); let prev = null, pair = false;
+    for (const {segment} of seg.segment(c.textContent)) { if (/^\\s+$/.test(segment)) { f.appendChild(document.createTextNode(segment)); prev = null; pair = false; continue; }
+      if (prev && ((ASCII.test(prev.textContent) && ASCII.test(segment)) || PUNCT.test(segment) || (pair && HAN1.test(segment)))) { prev.textContent += segment; pair = false; continue; }
+      const s = document.createElement("span"); s.className = "w"; s.textContent = segment; f.appendChild(s); prev = s; pair = HAN1.test(segment); } c.replaceWith(f); } else if (c.nodeType === 1) wrap(c); }); };
   document.fonts.ready.then(() => { const h = document.querySelector("h1"); wrap(h);
     for (let size = __MAX__; size >= 76; size -= 4) { h.style.fontSize = size + "px"; const lh = parseFloat(getComputedStyle(h).lineHeight); if (h.scrollHeight <= lh * __LINES__ + 2) break; }
     document.body.dataset.ready = "1"; });

@@ -55,7 +55,9 @@ def units(text: Any) -> int:
 # ---------------------------------------------------------------------------
 def story_material(cluster: Mapping[str, Any]) -> dict[str, Any]:
     lead = cluster.get("lead") or {}
-    text = "\n".join(str(lead.get(k) or "") for k in ("title", "hot_title", "summary", "digest"))
+    related = [t for t in cluster.get("member_titles") or [] if t != lead.get("title")][:4]
+    # The writer is told that related_titles are valid evidence, so the validator must accept them too.
+    text = "\n".join([*(str(lead.get(k) or "") for k in ("title", "hot_title", "summary", "digest")), *related])
     brand = find_brand(" ".join(str(lead.get(k) or "") for k in ("hot_title", "title")))
     return {
         "item_id": lead.get("item_id"),
@@ -63,7 +65,7 @@ def story_material(cluster: Mapping[str, Any]) -> dict[str, Any]:
         "hot_title": lead.get("hot_title") or "",
         "summary": lead.get("summary") or "",
         "digest": lead.get("digest") or "",
-        "related_titles": [t for t in cluster.get("member_titles") or [] if t != lead.get("title")][:4],
+        "related_titles": related,
         "category": lead.get("category") or "other",
         "category_label": lead.get("category_label") or C.V6_CATEGORY_LABELS.get(lead.get("category") or "other", "AI 动态"),
         "source": lead.get("source") or "",

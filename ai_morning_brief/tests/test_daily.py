@@ -92,6 +92,13 @@ class DirectorTests(unittest.TestCase):
         self.assertIn("必须以句号", joined)
         self.assertIn("99999", joined)
 
+    def test_related_titles_count_as_evidence(self):
+        cluster = {"lead": {"item_id": "m", "title": "Mistral Large 4 登陆", "summary": "总参数约 1T"},
+                   "member_titles": ["Mistral Large 4 登陆", "vLLM 发布 Mistral Large 4 Day 0 支持"]}
+        material = director.story_material(cluster)
+        self.assertEqual(material["related_titles"], ["vLLM 发布 Mistral Large 4 Day 0 支持"])
+        self.assertEqual(director._unsupported_tokens("vLLM 首日支持 Day 0", material["_material"]), [])
+
     def test_card_references_must_cover_every_card_in_order(self):
         plan = director.fallback_plan(self.selection)
         story = plan["stories"][0]
