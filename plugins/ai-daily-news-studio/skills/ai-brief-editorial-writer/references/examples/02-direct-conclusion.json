@@ -1,20 +1,87 @@
 {
-  "hook_style": "直接结论：一句话说出发生了什么大事",
-  "when_to_use": "事件本身就足够重磅（上市、收购、重大发布），不需要绕弯",
-  "material_excerpt": "Anthropic 向美国 SEC 提交 S-1 注册声明，计划在纳斯达克全球精选市场以代码 ANT 上市；发行股数与价格区间尚未确定，初步招股书将通过 Goldman Sachs 和 Morgan Stanley 提供。",
-  "hook": {"text": "Anthropic 正式启动 【IPO】，代码 ANT", "keyfact": "Anthropic 已向美国 SEC 提交 S-1，计划在纳斯达克上市。"},
-  "story": {
-    "role": "headline", "subject": "Anthropic", "title": "Anthropic 递交 S-1，拟以 ANT 登陆纳斯达克",
-    "cards": [
-      {"label": "上市地点", "headline": "纳斯达克全球精选市场", "body": "计划以代码 ANT 上市，发行 Class A 普通股。"},
-      {"label": "承销机构", "headline": "高盛与摩根士丹利", "body": "初步招股书将通过 Goldman Sachs 和 Morgan Stanley 提供。"},
-      {"label": "尚未确定", "headline": "股数与价格未定", "body": "发行股数和价格区间尚未确定。"}
-    ],
-    "narration": [
-      {"text": "Anthropic 已经向美国 SEC 递交了 S-1。", "card": 1},
-      {"text": "它计划在纳斯达克以代码 ANT 上市。", "card": 1},
-      {"text": "招股书会通过高盛和摩根士丹利提供。", "card": 2},
-      {"text": "发行股数和价格区间都还没定。", "card": 3}
-    ]
-  }
+ "kind": "headline",
+ "hook_style": "直接结论：一句话说出发生了什么大事",
+ "when_to_use": "事件本身就足够重磅（上市、收购、重大发布），不需要绕弯",
+ "what_to_learn": "同一条故事线的多条报道（招股书、营收、风险提示）合成一条头条讲透；数字放进“关键数字”，意义放进“为什么重要”，未定事项放进“还没确定”。",
+ "material_depth": "rich",
+ "material_chars": 1880,
+ "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
+ "material_excerpt": [
+  "[AIHOT 综述] Anthropic 已向美国 SEC 公开提交 S-1 注册声明，拟在纳斯达克以代码 ANT 发行 A 类普通股，由高盛和摩根士丹利承销；发行股数与价格区间尚未确定，注册声明尚未生效。招股书披露 2026 年上半年营收 162.86 亿美元，约为去年同期的 13 倍。更新文件还显示，算力与基础设施合同承诺总额约 8954 亿美元，其中 4475 亿美元须在 2031 年前支付。上市后，长期受益信托可任命七名董事中的四席，七位联合创始人合计掌握 50.1% 投票权，普通股股东对董事会组成影响有限。",
+  "[来源报道 · TechCrunch] Anthropic 在修订的 S-1A 文件风险因素部分新增表述，称内部估计显示其可能很快达到负责任扩展政策中「AI 带来的显著加速进展」的定义，但目前没有任何现有模型被认定越过该阈值。"
+ ],
+ "hook": {
+  "text": "Anthropic 正式递交 【S-1】，代码 ANT",
+  "keyfact": "Anthropic 向美国 SEC 公开提交 S-1，拟在纳斯达克以代码 ANT 上市。"
+ },
+ "story": {
+  "role": "headline",
+  "subject": "Anthropic",
+  "title": "Anthropic 递交 S-1，拟以 ANT 登陆纳斯达克",
+  "cards": [
+   {
+    "label": "发生了什么",
+    "headline": "拟以 ANT 上市",
+    "body": "Anthropic 向 SEC 提交 S-1，计划在纳斯达克发行 A 类普通股，由高盛和摩根士丹利承销。"
+   },
+   {
+    "label": "关键数字",
+    "headline": "半年营收约 13 倍",
+    "body": "2026 年上半年营收 162.86 亿美元，约为去年同期的 【13 倍】。"
+   },
+   {
+    "label": "为什么重要",
+    "headline": "算力账单极其庞大",
+    "body": "算力与基础设施合同承诺约 8954 亿美元，其中 4475 亿美元须在 2031 年前支付。"
+   },
+   {
+    "label": "各方说法",
+    "headline": "文件警示 AI 加速",
+    "body": "据 TechCrunch，修订后的文件称内部估计可能很快达到“AI 带来的显著加速进展”的定义。"
+   },
+   {
+    "label": "还没确定",
+    "headline": "价格和股数未定",
+    "body": "发行股数与价格区间尚未确定，注册声明也尚未生效。"
+   }
+  ],
+  "narration": [
+   {
+    "text": "Anthropic 已经向美国 SEC 递交了 S-1。",
+    "card": 1
+   },
+   {
+    "text": "计划在纳斯达克上市，股票代码 ANT。",
+    "card": 1
+   },
+   {
+    "text": "招股书显示，2026 年上半年营收 162.86 亿美元。",
+    "card": 2
+   },
+   {
+    "text": "差不多是去年同期的 13 倍。",
+    "card": 2
+   },
+   {
+    "text": "但它签下的算力与基础设施合同，总额约 8954 亿美元。",
+    "card": 3
+   },
+   {
+    "text": "其中 4475 亿美元要在 2031 年前付清。",
+    "card": 3
+   },
+   {
+    "text": "TechCrunch 注意到，修订后的文件新增了一条风险提示。",
+    "card": 4
+   },
+   {
+    "text": "内部估计，它可能很快达到“AI 带来的显著加速进展”的定义。",
+    "card": 4
+   },
+   {
+    "text": "发行价格和股数还没有确定，注册声明也还没生效。",
+    "card": 5
+   }
+  ]
+ }
 }

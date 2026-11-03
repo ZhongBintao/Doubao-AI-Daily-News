@@ -1,52 +1,71 @@
 {
-  "hook_style": "规模反常：用“多少个/多快”说明事情不寻常",
-  "when_to_use": "列表型、汇总型新闻（多家公司、多起事件、多个平台）",
-  "material_excerpt": "Wiz 研究团队梳理 10 月内至少九个 AI 开发者平台披露的安全事件，包括 Fireworks AI、Lightning AI、Railway、Warp、OpenCode 等，多起报告指向凭据窃取和 agent swarm 攻击。",
-  "hook": {
-    "text": "一个月，【九个】 AI 开发平台接连出事",
-    "keyfact": "Wiz 梳理了 10 月内至少九个 AI 开发者平台披露的安全事件。"
-  },
-  "story": {
-    "role": "headline",
-    "subject": "Wiz",
-    "title": "Wiz：10 月九个 AI 开发平台接连出事",
-    "cards": [
-      {
-        "label": "涉及平台",
-        "headline": "Fireworks AI 等平台",
-        "body": "包括 Fireworks AI、Railway、Warp、OpenCode 等平台。"
-      },
-      {
-        "label": "攻击方式",
-        "headline": "凭据窃取与 agent swarm",
-        "body": "多起报告指向凭据窃取和 agent swarm 攻击。"
-      }
-    ],
-    "narration": [
-      {
-        "text": "安全公司 Wiz 统计，10 月至少有九个 AI 开发平台出了安全事件。",
-        "card": 1
-      },
-      {
-        "text": "涉及 Fireworks AI、Railway 等平台。",
-        "card": 1
-      },
-      {
-        "text": "多起事件指向凭据窃取和 agent swarm 攻击。",
-        "card": 2
-      }
-    ]
-  },
-  "flash_example": {
-    "role": "flash",
-    "subject": "Wiz",
-    "title": "Wiz：10 月九个 AI 开发平台出安全事件",
-    "point": "多起报告指向凭据窃取和 agent swarm 攻击。",
-    "narration": [
-      {
-        "text": "Wiz 统计，10 月有九个 AI 开发平台出了安全事件。"
-      }
-    ]
-  },
-  "note": "英文名按字母数计入字数（Fireworks 算 9 字），英文多时要写得更短。"
+ "kind": "headline",
+ "hook_style": "规模反常：用“多少个/多快”说明事情不寻常",
+ "when_to_use": "列表型、汇总型新闻（多家公司、多起事件、多个平台）",
+ "what_to_learn": "“背景”卡用 background 里的此前报道，说明这不是孤立事件，并写明是此前的事；“各方说法”引用当事人原话的意思。",
+ "material_depth": "medium",
+ "material_chars": 520,
+ "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
+ "material_excerpt": [
+  "[摘要 · Wiz] Wiz 研究团队梳理 10 月内至少九个 AI 开发者平台披露的安全事件，包括 Fireworks AI、Lightning AI、Railway、Warp、OpenCode 等，多起报告指向凭据窃取、agent swarm 攻击和以“蒸馏”为目的的窃取。",
+  "[此前报道 · Wiz · 10-29] Wiz 汇总智能体攻击案例，包括 ARTEX 针对韩国金融机构与 ConnectWise 供应链（尝试攻击超 2,250 个租户）。",
+  "[相关报道 · TechCrunch · 10-28] Wiz 的 CTO Tomer Schwartz 认为 AI 改变了漏洞被发现和利用的速度，手动打补丁无法扩展。"
+ ],
+ "hook": {
+  "text": "一个月，【九个】 AI 开发平台接连出事",
+  "keyfact": "Wiz 梳理出 10 月内至少九个 AI 开发者平台披露的安全事件。"
+ },
+ "story": {
+  "role": "headline",
+  "subject": "Wiz",
+  "title": "Wiz：九个 AI 开发平台 10 月接连出事",
+  "cards": [
+   {
+    "label": "发生了什么",
+    "headline": "九个平台接连出事",
+    "body": "10 月内至少九个 AI 开发者平台披露安全事件，包括 Fireworks AI、Railway、Warp 等。"
+   },
+   {
+    "label": "怎么做到的",
+    "headline": "盯上凭据和智能体",
+    "body": "多起报告指向凭据窃取、agent swarm 攻击，以及以“蒸馏”为目的的窃取。"
+   },
+   {
+    "label": "背景",
+    "headline": "智能体已在真实入侵中",
+    "body": "此前 Wiz 汇总的案例里，一次 ConnectWise 供应链攻击尝试攻击超 【2,250】 个租户。"
+   },
+   {
+    "label": "各方说法",
+    "headline": "手动打补丁跟不上",
+    "body": "Wiz 的 CTO 认为，AI 改变了漏洞被发现和利用的速度，手动打补丁无法扩展。"
+   }
+  ],
+  "narration": [
+   {
+    "text": "安全公司 Wiz 统计，光是 10 月，就有至少九个 AI 开发者平台出了安全事件。",
+    "card": 1
+   },
+   {
+    "text": "名单里有 Fireworks AI、Railway 和 Warp。",
+    "card": 1
+   },
+   {
+    "text": "攻击手法多指向凭据窃取和 agent swarm 攻击。",
+    "card": 2
+   },
+   {
+    "text": "还有一些是以“蒸馏”为目的的窃取。",
+    "card": 2
+   },
+   {
+    "text": "这并不是孤立事件，此前 Wiz 汇总的案例里，一次供应链攻击尝试攻击超 2,250 个租户。",
+    "card": 3
+   },
+   {
+    "text": "Wiz 的 CTO 认为，AI 让漏洞被发现和利用得更快，手动打补丁已经跟不上了。",
+    "card": 4
+   }
+  ]
+ }
 }

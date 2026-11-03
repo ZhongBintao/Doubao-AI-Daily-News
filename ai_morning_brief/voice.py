@@ -54,6 +54,8 @@ def build_manifest(run_dir: Path, final_plan: Mapping[str, Any], provider: str) 
             "display_text": unit["display_text"],
             "output_path": str(raw_audio_path(run_dir, unit["unit_id"], ".wav" if provider == "doubao" else ".mp3")),
         })
+    path = run_dir / "artifacts" / "tts_manifest.json"
+    _drop_stale_audio(run_dir, path, units)
     manifest = {
         "version": C.V6_VERSION,
         "provider": provider,
@@ -66,10 +68,28 @@ def build_manifest(run_dir: Path, final_plan: Mapping[str, Any], provider: str) 
         } if provider == "doubao" else None,
         "edge": {"voice": C.EDGE_TTS_VOICE, "rate": C.EDGE_TTS_RATE} if provider == "edge" else None,
     }
-    path = run_dir / "artifacts" / "tts_manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
+
+
+def _drop_stale_audio(run_dir: Path, manifest_path: Path, units: list[dict[str, Any]]) -> None:
+    """Delete audio whose sentence changed, so an edited plan never keeps its old voice-over.
+
+    Output paths are keyed by unit id (u01, u02 ...); when a sentence is rewritten
+    the old file would otherwise count as already synthesized.
+    """
+
+    try:
+        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        previous = {}
+    old = {str(u.get("output_path")): str(u.get("spoken_text")) for u in previous.get("units") or []}
+    for unit in units:
+        out = Path(unit["output_path"])
+        if out.is_file() and old.get(str(out)) != unit["spoken_text"]:
+            out.unlink(missing_ok=True)
+            (run_dir / "artifacts" / "alignments" / f"{unit['unit_id']}.raw.json").unlink(missing_ok=True)
 
 
 def missing_units(manifest: Mapping[str, Any]) -> list[str]:
@@ -119,12 +139,17 @@ def synthesize_edge(run_dir: Path, manifest: Mapping[str, Any], *, attempts: int
         out = Path(unit["output_path"])
         words_path = run_dir / "artifacts" / "alignments" / f"{unit['unit_id']}.raw.json"
         if out.is_file() and out.stat().st_size > 0 and words_path.is_file():
-            continue
+            try:
+                done = json.loads(words_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                done = {}
+            if done.get("text", unit["spoken_text"]) == unit["spoken_text"] and done.get("voice") == voice and done.get("rate") == rate:
+                continue
         for attempt in range(1, attempts + 1):
             try:
                 words = asyncio.run(_edge_one(unit["spoken_text"], out, voice, rate))
                 words_path.parent.mkdir(parents=True, exist_ok=True)
-                words_path.write_text(json.dumps({"provider": "edge", "voice": voice, "rate": rate, "words": words}, ensure_ascii=False), encoding="utf-8")
+                words_path.write_text(json.dumps({"provider": "edge", "voice": voice, "rate": rate, "text": unit["spoken_text"], "words": words}, ensure_ascii=False), encoding="utf-8")
                 break
             except Exception as exc:  # network / service errors
                 out.unlink(missing_ok=True)

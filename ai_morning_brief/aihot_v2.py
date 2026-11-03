@@ -1,10 +1,11 @@
 """Read-only client for the AIHOT 2.0 JSON API (https://aihot.news/api/v1).
 
-The v6 newsroom uses four AIHOT layers:
+The v6 newsroom uses only AIHOT's own data (never the original article links):
 
-* ``/items``            selected (and optionally all) items with AIHOT scores
+* ``/items``            selected (and optionally all) items with AIHOT scores;
+                        ``q=`` keyword search finds more AIHOT coverage of an event
 * ``/hot-topics``       current multi-source events (real-time only, no history)
-* ``/stories/{id}``     one event's coverage timeline and AI digest
+* ``/stories/{id}``     one event's AI digest, per-source reports and related events
 * ``/dailies/{date}``   the AIHOT daily report (published 08:00 Asia/Shanghai)
 
 Responses are treated as untrusted data. Every request is a GET, honours
@@ -74,6 +75,20 @@ class AIHotV2Client:
                 raise AIHotV2Error("AIHOT reported hasMore without nextCursor")
         return collected
 
+    def search(self, query: str, *, window: str = "7d", limit: int = 20) -> list[dict[str, Any]]:
+        """Keyword search over every public AIHOT item (selected or not) of a window.
+
+        Used only to gather more AIHOT coverage of an event already in the
+        candidate pool; a missing fixture or a 404 yields an empty list.
+        """
+
+        query = " ".join(str(query or "").split())[:200]
+        if len(query) < 2 or window not in {"24h", "7d"}:
+            return []
+        payload = self._get("items", {"mode": "all", "window": window, "by": "timeline", "q": query, "limit": str(max(1, min(limit, 100)))},
+                            allow_missing=True)
+        return [dict(item) for item in (payload or {}).get("items") or [] if isinstance(item, Mapping)]
+
     def hot_topics(self) -> list[dict[str, Any]]:
         payload = self._get("hot-topics", {})
         return [dict(item) for item in payload.get("items") or [] if isinstance(item, Mapping)]
@@ -96,7 +111,10 @@ class AIHotV2Client:
     def _fixture(self, path: str, params: Mapping[str, str]) -> dict[str, Any] | None:
         assert self.fixture_dir is not None
         name = path.replace("/", "_")
-        if path == "items":
+        if path == "items" and params.get("q"):
+            slug = hashlib.sha256(str(params["q"]).encode("utf-8")).hexdigest()[:12]
+            name = f"items_search_{slug}"
+        elif path == "items":
             name = f"items_{params.get('mode')}_{params.get('window')}"
         candidate = self.fixture_dir / f"{name}.json"
         if not candidate.is_file():

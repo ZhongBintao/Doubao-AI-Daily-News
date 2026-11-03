@@ -54,6 +54,17 @@ def trimmed_logo(source: Path, destination: Path, *, padding: int = 14) -> Path:
     from PIL import Image, ImageChops
 
     image = Image.open(source).convert("RGBA")
+    # A white-on-transparent logo (e.g. xAI) would vanish on the white chip: recolor it to the ink colour.
+    alpha = image.getchannel("A")
+    visible = alpha.point(lambda v: 255 if v > 128 else 0)
+    from PIL import ImageStat
+
+    transparent_share = 1 - ImageStat.Stat(visible).mean[0] / 255
+    if visible.getbbox() and transparent_share > 0.1:  # only logos drawn on a transparent background
+        if ImageStat.Stat(image.convert("L"), mask=visible).mean[0] > 200:
+            ink = Image.new("RGBA", image.size, (32, 40, 43, 255))
+            ink.putalpha(alpha)
+            image = ink
     flat = Image.alpha_composite(Image.new("RGBA", image.size, (255, 255, 255, 255)), image).convert("RGB")
     mask = ImageChops.difference(flat, Image.new("RGB", image.size, (255, 255, 255))).point(lambda v: 255 if v > 30 else 0)
     box = mask.getbbox() or (0, 0, image.width, image.height)

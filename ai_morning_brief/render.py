@@ -21,10 +21,19 @@ HYPERFRAMES_PACKAGE = os.environ.get("HYPERFRAMES_PACKAGE", "hyperframes@0.9.8")
 ICONS = {
     "spark": '<svg viewBox="0 0 48 48"><path d="M24 4l3.6 13.2L41 21l-13.4 3.8L24 38l-3.6-13.2L7 21l13.4-3.8L24 4Z"/></svg>',
     "bars": '<svg viewBox="0 0 48 48"><path d="M9 39V25h7v14H9Zm12 0V12h7v27h-7Zm12 0V6h7v33h-7Z"/></svg>',
-    "chart": '<svg viewBox="0 0 48 48"><rect x="7" y="7" width="34" height="34" rx="3"/><path d="M14 33v-8M23 33V15M32 33v-13"/></svg>',
-    "clock": '<svg viewBox="0 0 48 48"><circle cx="24" cy="25" r="14"/><path d="M24 17v9l6 4M18 7h12"/></svg>',
-    "code": '<svg viewBox="0 0 48 48"><path d="m19 14-10 11 10 11M29 14l10 11-10 11"/></svg>',
+    "gear": '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="6"/><path d="M24 5v6M24 37v6M5 24h6M37 24h6M10.6 10.6l4.2 4.2M33.2 33.2l4.2 4.2M10.6 37.4l4.2-4.2M33.2 14.8l4.2-4.2"/></svg>',
+    "quote": '<svg viewBox="0 0 48 48"><path d="M8 10h32v22H22l-9 8v-8H8V10Z"/><path d="M17 19h14M17 25h9"/></svg>',
+    "clock": '<svg viewBox="0 0 48 48"><circle cx="24" cy="25" r="15"/><path d="M24 16v9l6 4"/><path d="M6 12l5-5"/></svg>',
+    "target": '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="16"/><circle cx="24" cy="24" r="8"/><circle cx="24" cy="24" r="1.5"/></svg>',
+    "user": '<svg viewBox="0 0 48 48"><circle cx="24" cy="17" r="8"/><path d="M9 41c1.5-8 7.5-12 15-12s13.5 4 15 12"/></svg>',
     "alert": '<svg viewBox="0 0 48 48"><path d="M24 6 44 40H4L24 6Z"/><path d="M24 19v10M24 34v1"/></svg>',
+    "arrow": '<svg viewBox="0 0 48 48"><path d="M8 24h30M28 13l11 11-11 11"/></svg>',
+}
+# Card labels are a fixed choice (config.CARD_LABELS), so each label has its own icon.
+LABEL_ICONS = {
+    "发生了什么": "spark", "关键数字": "bars", "怎么做到的": "gear", "各方说法": "quote", "背景": "clock",
+    "为什么重要": "target", "对你的影响": "user", "还没确定": "alert", "下一步": "arrow",
+    "要点": "spark", "为什么值得关注": "target",
 }
 
 
@@ -35,16 +44,8 @@ class RenderError(RuntimeError):
     pass
 
 
-def icon_for(text: str, index: int) -> str:
-    if re.search(r"待验证|尚无|风险|窃取|攻击|不受影响|抗议|起诉|下调|削减|亏损", text):
-        return "alert"
-    if re.search(r"\d|%|价格|额度|成绩|营收|参数", text):
-        return "bars"
-    if re.search(r"研究|论文|方法|做法|原理", text):
-        return "chart"
-    if re.search(r"月|日|时间|生效|起|计划", text):
-        return "clock"
-    return ("spark", "chart", "code")[index % 3]
+def icon_for(label: str, index: int = 0) -> str:
+    return LABEL_ICONS.get(str(label or "").strip(), ("spark", "bars", "target")[index % 3])
 
 
 def _marked(text: Any, open_tag: str, close_tag: str) -> str:
@@ -52,56 +53,86 @@ def _marked(text: Any, open_tag: str, close_tag: str) -> str:
     return re.sub(r"【(.+?)】", lambda m: f"{open_tag}{m.group(1)}{close_tag}", escaped).replace("【", "").replace("】", "")
 
 
-def _subject_chip(scene: Mapping[str, Any], logos: Mapping[str, str]) -> str:
+def _subject_chip(scene: Mapping[str, Any], logos: Mapping[str, Any]) -> str:
+    """Logo chip. A square-ish symbol logo also gets the subject name; a wide wordmark stands alone."""
+
+    name = html.escape(str(scene.get("subject") or ""))
     logo = logos.get(scene["scene_id"])
-    if logo:
-        return f'<span class="subject"><img src="{html.escape(logo)}" alt="{html.escape(str(scene.get("subject") or ""))}"></span>'
-    return f'<span class="subject">{html.escape(str(scene.get("subject") or ""))}</span>'
+    src, wide = (logo.get("src"), logo.get("wide")) if isinstance(logo, Mapping) else (logo, False)
+    if src:
+        text = "" if wide else f'<span class="name">{name}</span>'
+        return f'<span class="subject{" has-name" if text else ""}"><img src="{html.escape(src)}" alt="{name}">{text}</span>'
+    return f'<span class="subject">{name}</span>'
 
 
-def _header(scene: Mapping[str, Any], run_date: date) -> str:
-    progress = scene.get("progress") or None
-    right = ""
-    if progress:
-        segs = "".join(f'<i class="{"on" if k < progress["index"] else ""}"></i>' for k in range(progress["total"]))
-        right = f'<div class="progress">{html.escape(progress["role"])} {progress["index"]}/{progress["total"]}<span class="segs">{segs}</span></div>'
-    return (f'<div class="header"><div class="wordmark"><span class="rule"></span>{html.escape(C.DEFAULT_SHOW_NAME)}'
-            f'<span class="date">{run_date.month:02d}.{run_date.day:02d}</span></div>{right}</div>')
+def header_markup(scenes: list[Mapping[str, Any]], run_date: date) -> str:
+    """One persistent header for the whole video; only the progress label switches between scenes."""
+
+    progress = []
+    for scene in scenes:
+        p = scene.get("progress") or None
+        if not p:
+            continue
+        segs = "".join(f'<i class="{"on" if k < p["index"] else ""}"></i>' for k in range(p["total"]))
+        progress.append(f'<div class="progress" data-for="{html.escape(scene["scene_id"])}">{html.escape(p["role"])} {p["index"]}/{p["total"]}<span class="segs">{segs}</span></div>')
+    return (f'<div class="chrome"><div class="header"><div class="wordmark"><span class="rule"></span>{html.escape(C.DEFAULT_SHOW_NAME)}'
+            f'<span class="date">{run_date.month:02d}.{run_date.day:02d}</span></div>{"".join(progress)}</div></div>')
 
 
-def scene_markup(scene: Mapping[str, Any], run_date: date, logos: Mapping[str, str]) -> str:
+def _card(label: str, headline: str, body: Any, index: int, *, extra: str = "") -> str:
+    """A card. Headline cards wrap the body in .more so it can collapse to label + headline."""
+
+    text = f'<p>{_marked(body, HL_OPEN, HL_CLOSE)}</p>'
+    if headline:
+        text = f'<h3>{html.escape(headline)}</h3><div class="more"><div>{text}</div></div>'
+    return (f'<article class="card{extra}" data-card="{index}"><div class="icon">{ICONS[icon_for(label, index - 1)]}</div><div class="copy">'
+            f'<div class="label">{html.escape(label)}</div>{text}</div></article>')
+
+
+def scene_markup(scene: Mapping[str, Any], run_date: date, logos: Mapping[str, Any]) -> str:
     kind = scene["kind"]
     cat = re.sub(r"[^a-z\-]", "", str(scene.get("category") or "other")) or "other"
-    head = _header(scene, run_date)
     sid = html.escape(scene["scene_id"])
     if kind == "hook":
-        return (f'<section class="scene kind-hook cat-{cat}" id="{sid}"><div class="orbit"></div>{head}<div class="body">'
+        return (f'<section class="scene kind-hook cat-{cat}" id="{sid}"><div class="orbit"></div><div class="body">'
                 f'<div class="kicker-row"><span class="kicker">今日头条</span>{_subject_chip(scene, logos)}</div>'
                 f'<h1 class="hook-title fit" data-max="118" data-min="76" data-lines="4">{_marked(scene.get("hook"), "<em>", "</em>")}</h1>'
                 f'<div class="hook-rule"></div><div class="keyfact"><div class="label">发生了什么</div><p>{html.escape(str(scene.get("keyfact") or ""))}</p></div>'
                 f'</div></section>')
     if kind == "story":
-        cards = []
-        for i, card in enumerate(scene.get("cards") or []):
-            text = f'{card.get("label", "")}{card.get("headline", "")}{card.get("body", "")}'
-            cards.append(f'<article class="card" data-card="{i + 1}"><div class="icon">{ICONS[icon_for(text, i)]}</div><div class="copy">'
-                         f'<div class="label">{html.escape(str(card.get("label") or ""))}</div><h3>{html.escape(str(card.get("headline") or ""))}</h3>'
-                         f'<p>{_marked(card.get("body"), HL_OPEN, HL_CLOSE)}</p></div></article>')
-        return (f'<section class="scene kind-story cat-{cat}" id="{sid}">{head}<div class="body">'
-                f'<div class="kicker-row"><span class="section">{html.escape(str(scene.get("section") or ""))}</span></div>'
-                f'<h2 class="story-title fit" data-max="68" data-min="50" data-lines="3">{html.escape(str(scene.get("title") or ""))}</h2>'
-                f'<div class="story-meta">{_subject_chip(scene, logos)}</div>'
+        cards = [_card(str(card.get("label") or ""), str(card.get("headline") or ""), card.get("body"), i + 1)
+                 for i, card in enumerate(scene.get("cards") or [])]
+        return (f'<section class="scene kind-story cat-{cat}" id="{sid}"><div class="body">'
+                f'<div class="kicker-row"><span class="kicker">头条</span><span class="section">{html.escape(str(scene.get("section") or ""))}</span>{_subject_chip(scene, logos)}</div>'
+                f'<h2 class="story-title fit" data-max="66" data-min="50" data-lines="3">{html.escape(str(scene.get("title") or ""))}</h2>'
                 f'<div class="cards"><div class="cards-inner">{"".join(cards)}</div></div></div></section>')
     if kind == "flash":
-        return (f'<section class="scene kind-flash cat-{cat}" id="{sid}">{head}<div class="body">'
-                f'<div class="kicker-row"><span class="kicker teal">快讯</span><span class="section">{html.escape(str(scene.get("section") or ""))}</span></div>'
-                f'<h2 class="story-title fit" data-max="76" data-min="54" data-lines="3" style="margin-top:34px">{html.escape(str(scene.get("title") or ""))}</h2>'
-                f'<div class="story-meta">{_subject_chip(scene, logos)}</div>'
-                f'<div class="flash-card"><div class="label">要点</div><p>{html.escape(str(scene.get("point") or ""))}</p></div></div></section>')
-    return (f'<section class="scene kind-outro cat-ai-models" id="{sid}"><div class="orbit"></div>{head}<div class="body">'
-            f'<div class="outro-mark">{html.escape(C.DEFAULT_SHOW_NAME)}</div><div class="outro-rule"></div>'
+        cards = [_card("要点", "", scene.get("point"), 1, extra=" flash-card")]
+        if scene.get("why"):
+            cards.append(_card("为什么值得关注", "", scene.get("why"), 2, extra=" flash-card why"))
+        return (f'<section class="scene kind-flash cat-{cat}" id="{sid}"><div class="body">'
+                f'<div class="kicker-row"><span class="kicker teal">快讯</span><span class="section">{html.escape(str(scene.get("section") or ""))}</span>{_subject_chip(scene, logos)}</div>'
+                f'<h2 class="story-title fit" data-max="72" data-min="54" data-lines="3">{html.escape(str(scene.get("title") or ""))}</h2>'
+                f'<div class="cards"><div class="cards-inner">{"".join(cards)}</div></div></div></section>')
+    recap = "".join(f'<li><span class="tag{" teal" if item.get("role") == "快讯" else ""}">{html.escape(str(item.get("role") or ""))}</span>'
+                    f'<span class="t">{html.escape(str(item.get("title") or ""))}</span></li>' for item in scene.get("recap") or [])
+    recap_block = f'<div class="recap"><div class="recap-label">今天讲了</div><ol>{recap}</ol></div>' if recap else ""
+    return (f'<section class="scene kind-outro cat-ai-models{" has-recap" if recap else ""}" id="{sid}"><div class="orbit"></div><div class="body">'
+            f'<div class="outro-mark">{html.escape(C.DEFAULT_SHOW_NAME)}</div><div class="outro-rule"></div>{recap_block}'
             f'<div class="outro-text">{html.escape(str(scene.get("text") or C.OUTRO_TEXT))}</div>'
             f'<div class="outro-sub">资讯来源：AIHOT · 明天见</div></div></section>')
+
+
+def _is_wordmark(path: Path) -> bool:
+    """A wide logo already spells the brand name, so the chip shows it without repeating the name."""
+
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return image.width / max(1, image.height) >= 1.8
+    except Exception:
+        return False
 
 
 def ensure_font(destination_dir: Path) -> Path | None:
@@ -153,19 +184,20 @@ def materialize(run_dir: Path, final_plan: Mapping[str, Any], timeline: Mapping[
     (workspace / "assets" / "audio").mkdir(parents=True)
     shutil.copy2(run_dir / "assets" / "audio" / "final-mix.wav", workspace / "assets" / "audio" / "final-mix.wav")
     font = ensure_font(workspace / "assets" / "fonts")
-    logos: dict[str, str] = {}
+    logos: dict[str, dict[str, Any]] = {}
     for scene in final_plan.get("scenes") or []:
         source = scene.get("logo")
         if source and Path(source).is_file():
             target = workspace / "assets" / "logos" / Path(source).name
             if not target.exists():
                 trimmed_logo(Path(source), target)
-            logos[scene["scene_id"]] = f"assets/logos/{target.name}"
+            logos[scene["scene_id"]] = {"src": f"assets/logos/{target.name}", "wide": _is_wordmark(target)}
     timings = {s["scene_id"]: s for s in timeline.get("scenes") or []}
-    body = [scene_markup(scene, run_date, logos) for scene in final_plan.get("scenes") or [] if scene["scene_id"] in timings]
+    shown = [scene for scene in final_plan.get("scenes") or [] if scene["scene_id"] in timings]
+    body = [header_markup(shown, run_date)] + [scene_markup(scene, run_date, logos) for scene in shown]
     captions = "".join(
         f'<div class="cap" data-start="{cue["start"]:.3f}" data-end="{cue["end"]:.3f}"><span>{html.escape(cue["text"])}</span></div>'
-        for cue in timeline.get("captions") or [])
+        for cue in timeline.get("captions") or [] if cue.get("onscreen", True))
     body.append(f'<div class="captions">{captions}</div>')
     data = {"total_duration": timeline["total_duration"], "scenes": [timings[s["scene_id"]] | {"kind": s["kind"]} for s in final_plan["scenes"] if s["scene_id"] in timings],
             "card_events": timeline.get("card_events") or {}}

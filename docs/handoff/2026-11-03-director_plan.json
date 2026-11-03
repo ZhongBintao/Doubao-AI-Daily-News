@@ -1,0 +1,260 @@
+{
+ "version": "6.1",
+ "writer": {
+  "source": "agent",
+  "note": "3 headlines + 2 flashes from the recommended rundown; facts only from each event's AIHOT material pack"
+ },
+ "picks": {
+  "headlines": [
+   "xiu342i7osbgfxe2ezhrjndl0",
+   "zdajxfep092u90haul1cu9if9",
+   "wrmi17szf006yhdo1g9uufn74"
+  ],
+  "flashes": [
+   "sxbs5a90fgybhyucacmzvrc6w",
+   "k02hyr58q45b0ip29mm5bfxkf",
+   "f6dxzur6d4pwjdhvm1x6m5rfp"
+  ]
+ },
+ "hook": {
+  "text": "Anthropic 上市，算力承诺最高【1.07 万亿】",
+  "keyfact": "Anthropic 向美国 SEC 递交 S-1，拟在纳斯达克以代码 ANT 上市。"
+ },
+ "stories": [
+  {
+   "item_id": "xiu342i7osbgfxe2ezhrjndl0",
+   "role": "headline",
+   "subject": "Anthropic",
+   "title": "Anthropic 递交 S-1：营收暴涨，算力账单更惊人",
+   "cards": [
+    {
+     "label": "发生了什么",
+     "headline": "拟以 ANT 登陆纳斯达克",
+     "body": "Anthropic 向 SEC 公开提交 S-1，由高盛和摩根士丹利承销，计划发行 A 类普通股。"
+    },
+    {
+     "label": "关键数字",
+     "headline": "单季营收近 170 亿美元",
+     "body": "三季度营收近 【170 亿美元】，是一年前的十二倍；经营利润却转为亏损 5.67 亿美元。"
+    },
+    {
+     "label": "为什么重要",
+     "headline": "算力账单远超收入",
+     "body": "算力承诺约 8954 亿美元，算上未定价合同最高约 1.07 万亿，是前九个月收入的 【32 倍】。"
+    },
+    {
+     "label": "各方说法",
+     "headline": "文件警示 AI 加速",
+     "body": "据 TechCrunch，修订文件称内部估计可能很快达到“AI 带来的显著加速进展”的定义。"
+    },
+    {
+     "label": "还没确定",
+     "headline": "价格和股数未定",
+     "body": "发行股数与价格区间尚未确定；目前也没有现有模型被认定越过这一阈值。"
+    }
+   ],
+   "narration": [
+    {
+     "text": "Anthropic 已向美国 SEC 递交 S-1，准备在纳斯达克上市，代码 ANT。",
+     "card": 1
+    },
+    {
+     "text": "修订文件首次披露三季度业绩：单季营收接近 170 亿美元，是一年前的十二倍。",
+     "card": 2
+    },
+    {
+     "text": "但经营利润由盈转亏，亏了 5.67 亿美元，主要是高价短期算力推高了成本。",
+     "card": 2
+    },
+    {
+     "text": "更惊人的是算力账单：已签承诺约 8954 亿美元，4475 亿要在 2031 年前付清。",
+     "card": 3
+    },
+    {
+     "text": "算上还没定价的合同，总额约 1.07 万亿美元，是前九个月收入的 32 倍。",
+     "card": 3
+    },
+    {
+     "text": "据 TechCrunch，文件新增风险提示，称可能很快出现 AI 带来的显著加速。",
+     "card": 4
+    },
+    {
+     "text": "不过发行价格和股数还没定，目前也没有模型被认定越过这个门槛。",
+     "card": 5
+    }
+   ]
+  },
+  {
+   "item_id": "zdajxfep092u90haul1cu9if9",
+   "role": "headline",
+   "subject": "MIT",
+   "title": "MIT 让 GPT-6 Astra 直接改写模型权重",
+   "cards": [
+    {
+     "label": "发生了什么",
+     "headline": "不训练，直接改权重",
+     "body": "MIT CSAIL 团队让 GPT-6 Astra 直接读取并修改 Qwen3.5-0.8B 的权重，不用梯度下降。"
+    },
+    {
+     "label": "关键数字",
+     "headline": "数学成绩涨到 6 倍",
+     "body": "只改约 0.016%（131072 个）权重，MATH-500 从 7.9 升至 【48.1】。"
+    },
+    {
+     "label": "怎么做到的",
+     "headline": "定位权重，修好 bug",
+     "body": "据 Latent Space，模型能定位权重的功能，依据失败轨迹一次性修复 bug，甚至从零写出整套权重。"
+    },
+    {
+     "label": "为什么重要",
+     "headline": "可能绕过微调",
+     "body": "如果成立，调整模型能力可以不走微调流程，直接作用在权重本身。"
+    },
+    {
+     "label": "还没确定",
+     "headline": "说法不一，有待验证",
+     "body": "Latent Space 称已有独立复现，但仅限简单游戏和 RL 策略；数学成绩仍无公开的第三方验证。"
+    }
+   ],
+   "narration": [
+    {
+     "text": "MIT 的团队让 GPT-6 Astra 直接去改另一个模型的权重，不训练，也不用梯度下降。",
+     "card": 1
+    },
+    {
+     "text": "它只改了约 0.016% 的权重，MATH-500 就从 7.9 涨到 48.1。",
+     "card": 2
+    },
+    {
+     "text": "据 Latent Space 介绍，模型能定位权重的功能，照着失败轨迹一次修好 bug。",
+     "card": 3
+    },
+    {
+     "text": "如果成立，以后调整模型能力，可能不用再走微调这一步。",
+     "card": 4
+    },
+    {
+     "text": "Latent Space 说已有独立复现，但只适用于简单游戏和 RL 策略。",
+     "card": 5
+    },
+    {
+     "text": "而数学成绩这些数字来自研究团队，暂时没有公开的第三方验证。",
+     "card": 5
+    }
+   ]
+  },
+  {
+   "item_id": "wrmi17szf006yhdo1g9uufn74",
+   "role": "headline",
+   "subject": "Grok",
+   "title": "马斯克承认 Grok Bot 成本太高，下调用量限制",
+   "cards": [
+    {
+     "label": "发生了什么",
+     "headline": "额度被砍到一半",
+     "body": "据 Telegraph 报道，SpaceX 上周末削减了 Grok Bot 的用量配额，多名用户配额减半。"
+    },
+    {
+     "label": "各方说法",
+     "headline": "马斯克：成本太高",
+     "body": "马斯克在 X 上回应称，额度被用满不是故障，服务成本相对收入“高到难以为继”。"
+    },
+    {
+     "label": "对你的影响",
+     "headline": "每档都有周限额",
+     "body": "从免费版到每月 200 美元分多档，每档都有每周重置的限额，还与 Grok 和 Cursor 共用配额。"
+    },
+    {
+     "label": "背景",
+     "headline": "AI 已占一半收入",
+     "body": "SpaceX 上月披露 AI 已占公司收入 【52%】，Grok Bot 付费周活用户达 80 万。"
+    },
+    {
+     "label": "还没确定",
+     "headline": "之后怎么调没说",
+     "body": "马斯克没有直接确认削减，也没说明订阅者的限额今后如何调整。"
+    }
+   ],
+   "narration": [
+    {
+     "text": "据 Telegraph 报道，SpaceX 上周末削减了 Grok Bot 的用量配额。",
+     "card": 1
+    },
+    {
+     "text": "马斯克回应，额度用满不是故障，而是服务成本相对收入高到难以为继。",
+     "card": 2
+    },
+    {
+     "text": "Grok Bot 从免费到每月 200 美元分好几档，每档都有每周重置的限额。",
+     "card": 3
+    },
+    {
+     "text": "SpaceX 上月刚披露，AI 已占公司收入 52%，Grok Bot 付费周活有 80 万。",
+     "card": 4
+    },
+    {
+     "text": "不过马斯克没有直接确认削减，也没说之后限额怎么调。",
+     "card": 5
+    }
+   ]
+  },
+  {
+   "item_id": "sxbs5a90fgybhyucacmzvrc6w",
+   "role": "flash",
+   "subject": "OpenAI",
+   "title": "OpenAI 推出 Grid Protectors 计划",
+   "point": "电网紧张时，OpenAI 的数据中心会主动少用电，首站是佐治亚州 Effingham County 园区。",
+   "why": "用电高峰时最多削减 【1,000MW】，约够 70 万户平均用电；OpenAI 称大客户能摊薄电网固定成本。",
+   "narration": [
+    {
+     "text": "OpenAI 推出 Grid Protectors 计划，电网吃紧时，数据中心主动少用电。",
+     "card": 1
+    },
+    {
+     "text": "首站在佐治亚州，用电高峰最多削减 1000 MW，约够 70 万户用电。",
+     "card": 2
+    }
+   ]
+  },
+  {
+   "item_id": "k02hyr58q45b0ip29mm5bfxkf",
+   "role": "flash",
+   "subject": "Karpathy",
+   "title": "Karpathy 用 Claude 两小时做出 HackerTube",
+   "point": "Karpathy 让 Claude 从 HN 20 年的 【4300 万】 条评论里，筛出 6454 个被反复推荐的视频。",
+   "why": "他只手动建 API key、部署和买域名，其余都交给 Claude Code，约两小时上线。",
+   "narration": [
+    {
+     "text": "Karpathy 让 Claude 从 HN 20 年的 4300 万条评论里，筛出 6454 个视频。",
+     "card": 1
+    },
+    {
+     "text": "他只手动建 API key、部署和买域名，其余交给 Claude Code，两小时上线。",
+     "card": 2
+    }
+   ]
+  },
+  {
+   "item_id": "f6dxzur6d4pwjdhvm1x6m5rfp",
+   "role": "flash",
+   "subject": "OpenAI",
+   "title": "ChatGPT 和 Codex 要共用一份额度",
+   "point": "12 月起，Plus、Pro 和 Business 套餐的 ChatGPT 与 Codex 共用同一份 token 额度。",
+   "why": "模型越高级扣得越多，Instant 聊天不占额度；TechCrunch 称部分用户可能更常等待重置。",
+   "narration": [
+    {
+     "text": "从 12 月起，ChatGPT 和 Codex 将共用同一份 token 额度。",
+     "card": 1
+    },
+    {
+     "text": "模型越高级、任务越复杂，扣得越多，只有 Instant 聊天不占用。",
+     "card": 2
+    },
+    {
+     "text": "TechCrunch 提醒，部分用户可能更常等额度重置。",
+     "card": 2
+    }
+   ]
+  }
+ ]
+}

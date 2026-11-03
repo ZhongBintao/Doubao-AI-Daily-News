@@ -9,7 +9,7 @@ from typing import Any, Mapping
 from . import config as C
 from .writing import caption_visible_units, normalize_with_ledger
 
-CAPTION_MAX_UNITS = 17          # one caption line at 46px inside the safe width
+CAPTION_MAX_UNITS = 16          # one caption line at 46px inside the safe width (words never split)
 CAPTION_MAX_LINES = 2
 HOOK_SPEECH_START = 0.20
 SCENE_LEAD = 0.25               # visual transition starts slightly before speech
@@ -52,6 +52,16 @@ def split_caption(text: str, maximum: int = CAPTION_MAX_UNITS * CAPTION_MAX_LINE
         if chunk.strip():
             out.append(chunk)
     return out
+
+
+_TRAILING = "。，、；：,.;:！!？?"
+
+
+def caption_text(chunk: str) -> str:
+    """Captions drop trailing punctuation so every cue ends the same way (a closing quote or bracket stays)."""
+
+    text = chunk.strip().rstrip(_TRAILING).strip()
+    return re.sub(r"[（(“‘《「]+$", "", text).strip()  # an opening bracket never ends a cue
 
 
 def _chunk_times(chunks: list[str], words: list[Mapping[str, Any]], duration: float) -> list[tuple[float, float]]:
@@ -115,7 +125,8 @@ def build_timeline(run_dir: Path, final_plan: Mapping[str, Any], voice: Mapping[
         words = json.loads(align_path.read_text(encoding="utf-8")).get("words", []) if align_path.is_file() else []
         chunks = split_caption(unit["display_text"])
         for chunk, (cs, ce) in zip(chunks, _chunk_times(chunks, words, duration)):
-            captions.append({"start": round(start + cs, 3), "end": round(start + ce, 3), "text": chunk.rstrip("。")})
+            captions.append({"start": round(start + cs, 3), "end": round(start + ce, 3), "text": caption_text(chunk),
+                             "onscreen": unit.get("caption", True) is not False})
         cursor = end
         previous_scene = scene_id
     total = cursor + TAIL
@@ -137,6 +148,8 @@ def build_timeline(run_dir: Path, final_plan: Mapping[str, Any], voice: Mapping[
             card_events.setdefault(unit["scene_id"], []).append({"card": unit["card"], "start": unit["start"], "end": unit["end"]})
     # Captions end when the next one starts, so the bar never flickers between sentences of a scene.
     for i in range(len(captions) - 1):
+        if not captions[i]["onscreen"] or not captions[i + 1]["onscreen"]:
+            continue
         gap = captions[i + 1]["start"] - captions[i]["end"]
         if 0 < gap < 0.5:
             captions[i]["end"] = captions[i + 1]["start"]

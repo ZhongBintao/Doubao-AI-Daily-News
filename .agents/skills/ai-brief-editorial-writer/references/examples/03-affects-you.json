@@ -1,19 +1,75 @@
 {
-  "hook_style": "与你有关：点出用户会直接感受到的变化",
-  "when_to_use": "价格、额度、套餐、功能下线等会影响普通用户的变化，素材里没有大数字也能用",
-  "material_excerpt": "从 12 月开始，Plus 和 Pro 用户的 ChatGPT 聊天与 Codex 用量将合并为同一 Token 额度，仅 Instant 聊天不受影响；社区在 GitHub 上提 issue 抗议。",
-  "hook": {"text": "ChatGPT 和 Codex 要【共用一份额度】了", "keyfact": "从 12 月开始，Plus 和 Pro 用户的聊天与 Codex 用量将合并计算。"},
-  "story": {
-    "role": "headline", "subject": "OpenAI", "title": "OpenAI 12 月起合并 ChatGPT 与 Codex 额度",
-    "cards": [
-      {"label": "变化", "headline": "统一 Token 额度", "body": "Plus 和 Pro 用户的 ChatGPT 聊天与 Codex 用量合并为同一额度。"},
-      {"label": "例外", "headline": "Instant 聊天不受影响", "body": "只有 Instant 聊天不计入合并后的额度。"},
-      {"label": "社区反应", "headline": "开发者提 issue 抗议", "body": "社区已经在 GitHub 上提 issue 抗议。"}
-    ],
-    "narration": [
-      {"text": "从 12 月开始，ChatGPT 聊天和 Codex 将共用一份额度。", "card": 1},
-      {"text": "只有 Instant 聊天不受影响。", "card": 2},
-      {"text": "社区已经在 GitHub 上提 issue 抗议。", "card": 3}
-    ]
-  }
+ "kind": "headline",
+ "hook_style": "与你有关：点出用户会直接感受到的变化",
+ "when_to_use": "价格、额度、套餐、功能下线等会影响普通用户的变化，素材里没有大数字也能用",
+ "what_to_learn": "“各方说法”写清谁说了什么；“对你的影响”只复述素材写到的影响；当事人没确认的事要放进“还没确定”。",
+ "material_depth": "rich",
+ "material_chars": 850,
+ "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
+ "material_excerpt": [
+  "[摘要 · The Decoder] 据 Telegraph 报道，SpaceX 上周末削减了 Grok Bot 的用量配额，多名用户配额减半。Musk 在 X 上回应称运行 Grok Bot 的成本相对收入高到难以持续，但未直接确认削减。",
+  "[AIHOT 综述] 马斯克在 X 平台回应称，周末部分用户 Grok Bot 每周额度被用满并非故障，原因是服务成本“相对于收入而言高到难以为继”，并已下调用量限制。他未说明订阅者限额今后如何调整。",
+  "[来源报道 · IT之家] Grok Bot 是 SpaceX 8 月推出的 AI 智能体，分从免费到每月 200 美元的多档套餐且均设有每周重置的使用限额。"
+ ],
+ "hook": {
+  "text": "不少 Grok Bot 用户的额度【减半】了",
+  "keyfact": "SpaceX 削减了 Grok Bot 的用量配额，马斯克称服务成本高于收入。"
+ },
+ "story": {
+  "role": "headline",
+  "subject": "Grok",
+  "title": "马斯克承认 Grok Bot 成本太高，下调用量限制",
+  "cards": [
+   {
+    "label": "发生了什么",
+    "headline": "配额被砍到一半",
+    "body": "据 Telegraph 报道，SpaceX 上周末削减了 Grok Bot 的用量配额，多名用户配额减半。"
+   },
+   {
+    "label": "各方说法",
+    "headline": "马斯克：成本太高",
+    "body": "马斯克在 X 上回应称，额度被用满不是故障，服务成本相对收入“高到难以为继”。"
+   },
+   {
+    "label": "对你的影响",
+    "headline": "每档都有周限额",
+    "body": "Grok Bot 从免费到每月 200 美元分多档，所有档位都设有每周重置的使用限额。"
+   },
+   {
+    "label": "还没确定",
+    "headline": "之后怎么调没说",
+    "body": "马斯克没有直接确认削减，也没说明订阅者的限额今后如何调整。"
+   }
+  ],
+  "narration": [
+   {
+    "text": "据 Telegraph 报道，SpaceX 上周末削减了 Grok Bot 的用量配额。",
+    "card": 1
+   },
+   {
+    "text": "不少用户发现，自己的额度直接少了一半。",
+    "card": 1
+   },
+   {
+    "text": "马斯克在 X 上回应说，额度用满并不是故障。",
+    "card": 2
+   },
+   {
+    "text": "而是服务成本相对收入，已经高到难以为继。",
+    "card": 2
+   },
+   {
+    "text": "Grok Bot 从免费到每月 200 美元分好几档。",
+    "card": 3
+   },
+   {
+    "text": "每一档都有每周重置的使用限额。",
+    "card": 3
+   },
+   {
+    "text": "不过马斯克没有直接确认削减，也没说之后限额怎么调。",
+    "card": 4
+   }
+  ]
+ }
 }

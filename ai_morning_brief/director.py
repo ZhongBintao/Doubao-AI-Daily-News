@@ -1,25 +1,31 @@
 """v6 director plan: the only thing a writer model produces.
 
 The writer model answers a fill-in task (``director_task.json``) instead of
-designing a video. It chooses picks from a fixed pool and fills short fields
-under hard budgets. ``validate_plan`` returns Chinese, field-addressed errors a
-weak model can act on; ``fallback_plan`` builds a valid plan from AIHOT text
-alone so an edition always renders.
+designing a video. It chooses picks from a fixed pool and fills fixed fields
+under budgets that scale with how much AIHOT material each event has.
+``validate_plan`` returns Chinese, field-addressed errors a weak model can act
+on; ``fallback_plan`` builds a valid plan from the AIHOT material pack alone so
+an edition always renders.
 
-Plan shape (version 6.0)::
+Plan shape (version 6.1)::
 
     {
-      "version": "6.0",
-      "picks": {"headlines": [id], "flashes": [id, ...]},
+      "version": "6.1",
+      "picks": {"headlines": [id, ...], "flashes": [id, ...]},
       "hook": {"text": "只改 【0.016%】 的权重，数学成绩涨到 6 倍", "keyfact": "..."},
       "stories": [
         {"item_id": id, "role": "headline", "subject": "...", "title": "...",
-         "cards": [{"label": "...", "headline": "...", "body": "..."}],
+         "cards": [{"label": "发生了什么", "headline": "...", "body": "..."}],
          "narration": [{"text": "...。", "card": 1}]},
         {"item_id": id, "role": "flash", "subject": "...", "title": "...",
-         "point": "...", "narration": [{"text": "...。"}]}
+         "point": "...", "why": "...", "narration": [{"text": "...。", "card": 1}]}
       ]
     }
+
+Card labels are a choice from ``config.CARD_LABELS``; an event with enough
+material must have at least one "depth" card (各方说法 / 背景 / 为什么重要 /
+对你的影响). Facts — numbers and names — must appear in the event's AIHOT
+material pack (see ``material.py``); the AIHOT angle hint is not evidence.
 """
 from __future__ import annotations
 
@@ -30,16 +36,21 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from . import config as C
+from . import material as M
 from .brands import find_brand
 from .writing import caption_visible_units, normalize_with_ledger
 
+PLAN_VERSION = "6.1"
 EXAMPLES_DIR = C.REPO_ROOT / "skills" / "ai-brief-editorial-writer" / "references" / "examples"
 _MARK = re.compile(r"【(.+?)】")
 _TERMINAL = re.compile(r"[。！？!?]$")
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _ASCII = re.compile(r"[A-Za-z][A-Za-z0-9\-]*(?:\.[A-Za-z0-9]+)*")
 _ASCII_ALLOW = {"ai", "app", "ceo", "cto", "api", "ok", "vs"}
-CARD_LABELS = ("核心信息", "关键细节", "补充说明", "后续进展", "背景")
+_CAVEAT = re.compile(r"尚无|尚未|未经|待验证|未证实|无法核实|无法核查|没有第三方|仍待|有待|未获|并未确认|未直接确认|说法不一|存在争议")
+_CAVEAT_KEPT = re.compile(r"尚|未|待|没有|还没|不确定|仍需|有待|争议|不一|无法")
+_ATTRIBUTION_WORDS = re.compile(r"据|称|认为|表示|指出|报道|回应|透露|解读|分析|说")
+CARD_LABELS = C.CARD_LABELS
 
 
 def plain(text: Any) -> str:
@@ -53,11 +64,29 @@ def units(text: Any) -> int:
 # ---------------------------------------------------------------------------
 # task
 # ---------------------------------------------------------------------------
+def _fallback_pack(lead: Mapping[str, Any], related: list[str]) -> dict[str, Any]:
+    """Pack for a cluster dict that predates material packs (tests, old selections)."""
+
+    facts = [{"kind": k, "source": str(lead.get("source") or ""), "date": "", "text": str(lead.get(f) or "")}
+             for k, f in (("摘要", "summary"), ("AIHOT 综述", "digest")) if lead.get(f)]
+    facts += [{"kind": "同事件报道", "source": "", "date": "", "text": t} for t in related]
+    chars = sum(len(f["text"]) for f in facts)
+    depth = "rich" if chars >= C.PACK_DEPTH_RICH else "medium" if chars >= C.PACK_DEPTH_MEDIUM else "thin"
+    return {"facts": facts, "background": [], "angle_hint": "", "fact_chars": chars, "background_chars": 0, "source_count": 0, "depth": depth}
+
+
+def _fact_line(fact: Mapping[str, Any]) -> str:
+    meta = " · ".join(p for p in (fact.get("kind"), fact.get("source"), str(fact.get("date") or "")[5:]) if p)
+    return f"[{meta}] {fact.get('text')}"
+
+
 def story_material(cluster: Mapping[str, Any]) -> dict[str, Any]:
     lead = cluster.get("lead") or {}
     related = [t for t in cluster.get("member_titles") or [] if t != lead.get("title")][:4]
-    # The writer is told that related_titles are valid evidence, so the validator must accept them too.
-    text = "\n".join([*(str(lead.get(k) or "") for k in ("title", "hot_title", "summary", "digest")), *related])
+    pack = cluster.get("pack") or _fallback_pack(lead, related)
+    budget = cluster.get("budget") or M.story_budget(pack)
+    # The writer is told that every fact and background line is valid evidence, so the validator accepts them too.
+    text = "\n".join([*(str(lead.get(k) or "") for k in ("title", "hot_title", "summary", "digest")), *related, M.pack_evidence(pack)])
     brand = find_brand(" ".join(str(lead.get(k) or "") for k in ("hot_title", "title")))
     return {
         "item_id": lead.get("item_id"),
@@ -73,8 +102,14 @@ def story_material(cluster: Mapping[str, Any]) -> dict[str, Any]:
         "signals": lead.get("signals") or {},
         "subject_hint": (brand or {}).get("name") or "",
         "has_logo": bool((brand or {}).get("logo_path")),
+        "depth": pack.get("depth"),
+        "budget": budget,
+        "facts": [_fact_line(f) for f in pack.get("facts") or []],
+        "background": [_fact_line({**b, "text": f"{b.get('title') or ''}：{b.get('text')}"}) for b in pack.get("background") or []],
+        "angle_hint": pack.get("angle_hint") or "",
         "links": {"aihot": lead.get("aihot_url") or "", "original": lead.get("original_url") or ""},
         "_material": text,
+        "_pack": pack,
     }
 
 
@@ -88,29 +123,34 @@ def load_examples() -> list[dict[str, Any]]:
     return examples
 
 
-def budgets() -> dict[str, int]:
+def budgets() -> dict[str, Any]:
     return {
         "hook": C.BUDGET_HOOK_MAX, "keyfact": C.BUDGET_KEYFACT_MAX, "title": C.BUDGET_TITLE_MAX,
-        "card_label": C.BUDGET_CARD_LABEL_MAX, "card_headline": C.BUDGET_CARD_HEADLINE_MAX, "card_body": C.BUDGET_CARD_BODY_MAX,
-        "sentence": C.BUDGET_SENTENCE_MAX, "headline_narration": C.BUDGET_HEADLINE_NARRATION_MAX,
-        "flash_point": C.BUDGET_FLASH_POINT_MAX, "flash_narration": C.BUDGET_FLASH_NARRATION_MAX,
-        "total_narration": C.BUDGET_TOTAL_NARRATION_MAX, "headline_cards_min": C.HEADLINE_CARDS_MIN, "headline_cards_max": C.HEADLINE_CARDS_MAX,
+        "card_label_choices": list(CARD_LABELS), "card_depth_labels": list(C.CARD_DEPTH_LABELS),
+        "card_headline": C.BUDGET_CARD_HEADLINE_MAX, "card_body": C.BUDGET_CARD_BODY_MAX,
+        "sentence": C.BUDGET_SENTENCE_MAX, "flash_point": C.BUDGET_FLASH_POINT_MAX, "flash_why": C.BUDGET_FLASH_WHY_MAX,
+        "total_narration": C.BUDGET_TOTAL_NARRATION_MAX, "max_headlines": C.RUNDOWN_MAX_HEADLINES, "max_flashes": C.RUNDOWN_MAX_FLASHES,
+        "per_story": "每条新闻自己的字数范围见 pool[].budget（素材越多，要求讲得越多）",
     }
 
 
 TASK_STEPS = [
-    "第 1 步 选新闻：从 pool 里选 1 条头条（两条都极重磅时可选 2 条）和 1–3 条快讯，总数不超过 4 条。不确定就直接照抄 recommended。",
-    "第 2 步 写开头钩子 hook.text：一句话说出头条最抓人的点，可以用一对【】标出一个重点词或数字。参考 examples 里的 4 种写法。",
-    "第 3 步 写 hook.keyfact：一句客观事实，说清楚“谁做了什么”。",
-    "第 4 步 写每条新闻：subject（主体，如公司名）、title（标题）；头条写 2–5 张 cards 和逐句 narration；快讯写 point 和 1–2 句 narration。",
-    "第 5 步 每句 narration 以句号/问号/感叹号结尾；头条的每句用 card 字段写它在讲第几张卡（从 1 开始，按顺序讲，每张卡至少讲一句）。",
-    "第 6 步 运行 check_command 校验；按报错逐条修改，最多 2 次。仍失败也没关系，程序会自动用兜底稿出片。",
+    "第 1 步 选新闻：从 pool 里选头条（最多 3 条，只能选 budget.can_headline=true 的）和快讯（最多 5 条）。条数由当天内容决定，不必凑满；拿不准就直接照抄 recommended。",
+    "第 2 步 读素材：每条新闻的 facts 是 AIHOT 的摘要、综述和各来源报道，background 是 AIHOT 里的相关事件和此前报道，angle_hint 是 AIHOT 编辑写的“为什么值得看”（只用来决定讲哪个角度，不能当事实引用）。",
+    "第 3 步 写开头钩子 hook.text：一句话说出第一条头条最抓人的点，可以用一对【】标出一个重点词或数字。hook.keyfact 用一句客观事实说清“谁做了什么”。",
+    "第 4 步 写头条：subject、title；按 budget.cards 写卡片，每张卡的 label 从 card_label_choices 里选一个（第一张通常是“发生了什么”）。素材足够时（budget.needs_depth_card=true）至少要有一张“各方说法 / 背景 / 为什么重要 / 对你的影响”。",
+    "第 5 步 写头条旁白：逐句写，每句用 card 字段标明在讲第几张卡（从 1 开始，按顺序，每张卡至少一句）。旁白要解释卡片，而不是把卡片原样念一遍；合计字数落在 budget.headline_narration 范围内。",
+    "第 6 步 写快讯：point 写发生了什么；why 写“所以呢”——反差、影响或各方反应（素材足够时必填）；narration 写 budget.flash_sentences 句，第 1 句讲 point（card=1），后面讲 why（card=2）。",
+    "第 7 步 运行 check_command 校验；按报错逐条修改，最多 2 次。仍失败也没关系，程序会自动用兜底稿出片。",
 ]
 RULES = [
-    "所有数字、英文名、产品名必须原样出现在该条新闻的素材（title/hot_title/summary/digest/related_titles）里，不能编造。",
-    "不写来源没有的因果、预测、建议；素材说“尚未验证/尚无复现”时，要在卡片或旁白里保留这层意思。",
+    "所有数字、英文名、产品名必须原样出现在该条新闻的 facts 或 background 里，不能编造；angle_hint 不算素材。",
+    "不写素材里没有的因果、预测、建议；“为什么重要 / 对你的影响”只能复述素材里已经写出的意义或影响。",
+    "素材里说“尚未验证 / 尚无复现 / 尚未确定 / 说法不一”时，必须在“还没确定”卡片或旁白里保留这层意思。",
+    "“各方说法”要写清是谁说的（例如“据 TechCrunch”“马斯克称”）；背景信息要说明是此前发生的事。",
+    "卡片小标题（headline）是一句结论，正文（body）补充细节，两者不能是同一句话换个说法。",
     "不在文案里写分数、链接、AIHOT。",
-    "字数按可见字符计算，见 budgets；【】不计入字数，每个字段最多一对【】。",
+    "字数按可见字符计算，英文单词按字母数算，见 budgets 和 pool[].budget；【】不计入字数，每个字段最多一对【】。",
 ]
 
 
@@ -118,10 +158,12 @@ def build_task(run_date: date, selection: Mapping[str, Any], *, plan_path: Path,
     pool = [story_material(cluster) for cluster in selection.get("pool") or []]
     public_pool = [{k: v for k, v in item.items() if not k.startswith("_")} for item in pool]
     return {
-        "version": C.V6_VERSION,
+        "version": PLAN_VERSION,
         "task": "director-plan",
         "run_date": run_date.isoformat(),
         "mode": selection.get("mode"),
+        "estimated_seconds": selection.get("estimated_seconds"),
+        "max_seconds": C.RUNDOWN_MAX_SECONDS,
         "output_path": str(plan_path),
         "check_command": check_command,
         "steps": TASK_STEPS,
@@ -130,15 +172,16 @@ def build_task(run_date: date, selection: Mapping[str, Any], *, plan_path: Path,
         "recommended": selection.get("recommended") or {},
         "pool": public_pool,
         "output_template": {
-            "version": C.V6_VERSION,
+            "version": PLAN_VERSION,
             "picks": {"headlines": ["<pool 里的 item_id>"], "flashes": ["<item_id>", "<item_id>"]},
             "hook": {"text": "<钩子，可含一对【】>", "keyfact": "<一句客观事实>"},
             "stories": [
                 {"item_id": "<头条 id>", "role": "headline", "subject": "<主体>", "title": "<标题>",
-                 "cards": [{"label": "<≤6字>", "headline": "<≤16字>", "body": "<≤48字，可含一对【】>"}],
+                 "cards": [{"label": "<从 card_label_choices 选>", "headline": f"<≤{C.BUDGET_CARD_HEADLINE_MAX}字结论>", "body": f"<≤{C.BUDGET_CARD_BODY_MAX}字细节，可含一对【】>"}],
                  "narration": [{"text": "<一句话。>", "card": 1}]},
                 {"item_id": "<快讯 id>", "role": "flash", "subject": "<主体>", "title": "<标题>",
-                 "point": "<一句要点>", "narration": [{"text": "<一句话。>"}]},
+                 "point": "<发生了什么，可含一对【】>", "why": "<所以呢>",
+                 "narration": [{"text": "<讲 point 的一句话。>", "card": 1}, {"text": "<讲 why 的一句话。>", "card": 2}]},
             ],
         },
         "examples": load_examples(),
@@ -191,26 +234,48 @@ def _check_text(errors: list[str], path: str, value: Any, *, maximum: int, requi
         errors.append(f"{path}：句子必须以句号、问号或感叹号结尾。")
 
 
+def _duplicates(headline: str, body: str) -> bool:
+    """A card whose body only restates its headline carries half the information it could."""
+
+    h, b = M.bigrams(plain(headline)), M.bigrams(plain(body))
+    if not h:
+        return False
+    contained = len(h & b) / len(h)
+    return contained >= 0.8 and units(body) - units(headline) < 12
+
+
+def _range_error(errors: list[str], path: str, value: int, bounds: Iterable[int], what: str) -> None:
+    lo, hi = list(bounds)
+    if value < lo:
+        errors.append(f"{path}：{what}只有 {value} 字，这条素材足够讲到 {lo}–{hi} 字，请补充素材里的细节、背景或各方说法。")
+    elif value > hi:
+        errors.append(f"{path}：{what}超过 {hi} 字（当前 {value} 字），请删减。")
+
+
 def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
     if not isinstance(plan, Mapping):
         return ["整个文件必须是一个 JSON 对象。"]
-    if str(plan.get("version")) != C.V6_VERSION:
-        errors.append(f"version：必须是 \"{C.V6_VERSION}\"。")
+    if str(plan.get("version")) != PLAN_VERSION:
+        errors.append(f"version：必须是 \"{PLAN_VERSION}\"。")
     materials = material_index(selection)
     picks = plan.get("picks") or {}
     headlines = [str(v) for v in picks.get("headlines") or []]
     flashes = [str(v) for v in picks.get("flashes") or []]
     if not 1 <= len(headlines) <= C.RUNDOWN_MAX_HEADLINES:
         errors.append(f"picks.headlines：必须选 1–{C.RUNDOWN_MAX_HEADLINES} 条头条。")
-    if len(flashes) > C.RUNDOWN_MAX_STORIES - len(headlines):
-        errors.append(f"picks.flashes：头条加快讯总数不能超过 {C.RUNDOWN_MAX_STORIES} 条。")
+    if len(flashes) > C.RUNDOWN_MAX_FLASHES:
+        errors.append(f"picks.flashes：快讯最多 {C.RUNDOWN_MAX_FLASHES} 条。")
     chosen = headlines + flashes
     if len(set(chosen)) != len(chosen):
         errors.append("picks：同一条新闻不能被选两次。")
     for item_id in chosen:
         if item_id not in materials:
             errors.append(f"picks：{item_id} 不在 pool 里，只能从 pool 中选择。")
+    for index, item_id in enumerate(headlines):
+        budget = (materials.get(item_id) or {}).get("budget") or {}
+        if item_id in materials and not budget.get("can_headline", True) and len(headlines) > 1:
+            errors.append(f"picks.headlines[{index}]：{item_id} 的素材太少，讲不深，请改为快讯（放到 picks.flashes）。")
     hook = plan.get("hook") or {}
     _check_text(errors, "hook.text", hook.get("text"), maximum=C.BUDGET_HOOK_MAX, marks=True)
     _check_text(errors, "hook.keyfact", hook.get("keyfact"), maximum=C.BUDGET_KEYFACT_MAX)
@@ -233,7 +298,9 @@ def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
         if not isinstance(story, Mapping):
             errors.append(f"{prefix}：必须是对象。")
             continue
-        material = materials.get(str(story.get("item_id")), {}).get("_material", "")
+        m = materials.get(str(story.get("item_id")), {})
+        material = m.get("_material", "")
+        budget = m.get("budget") or M.story_budget({"depth": "thin"})
         _check_text(errors, f"{prefix}.subject", story.get("subject"), maximum=20)
         _check_text(errors, f"{prefix}.title", story.get("title"), maximum=C.BUDGET_TITLE_MAX)
         texts: list[tuple[str, str]] = [(f"{prefix}.title", str(story.get("title") or ""))]
@@ -251,18 +318,31 @@ def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
         total += story_units
         if story.get("role") == "headline":
             cards = story.get("cards")
-            if not isinstance(cards, list) or not C.HEADLINE_CARDS_MIN <= len(cards) <= C.HEADLINE_CARDS_MAX:
-                errors.append(f"{prefix}.cards：头条需要 {C.HEADLINE_CARDS_MIN}–{C.HEADLINE_CARDS_MAX} 张卡片。")
+            lo, hi = budget.get("cards") or (C.STORY_BUDGETS["thin"]["cards"])
+            if not isinstance(cards, list) or not lo <= len(cards) <= hi:
+                errors.append(f"{prefix}.cards：这条头条需要 {lo}–{hi} 张卡片（当前 {len(cards) if isinstance(cards, list) else 0} 张）。")
                 cards = cards if isinstance(cards, list) else []
+            labels: list[str] = []
             for c, card in enumerate(cards):
                 cp = f"{prefix}.cards[{c}]"
                 if not isinstance(card, Mapping):
                     errors.append(f"{cp}：必须是对象。")
                     continue
-                _check_text(errors, f"{cp}.label", card.get("label"), maximum=C.BUDGET_CARD_LABEL_MAX)
+                label = str(card.get("label") or "").strip()
+                labels.append(label)
+                if label not in CARD_LABELS:
+                    errors.append(f"{cp}.label：只能从这些标签里选一个：{'、'.join(CARD_LABELS)}。")
                 _check_text(errors, f"{cp}.headline", card.get("headline"), maximum=C.BUDGET_CARD_HEADLINE_MAX)
                 _check_text(errors, f"{cp}.body", card.get("body"), maximum=C.BUDGET_CARD_BODY_MAX, marks=True)
+                if card.get("headline") and card.get("body") and _duplicates(str(card["headline"]), str(card["body"])):
+                    errors.append(f"{cp}：小标题和正文几乎是同一句话。小标题写结论，正文请补充素材里的具体细节。")
+                if label == "各方说法" and not _ATTRIBUTION_WORDS.search(plain(card.get("body"))):
+                    errors.append(f"{cp}.body：“各方说法”要写清是谁说的，例如“据 TechCrunch，……”或“马斯克称……”。")
                 texts += [(f"{cp}.headline", str(card.get("headline") or "")), (f"{cp}.body", str(card.get("body") or ""))]
+            if len(set(labels)) != len(labels):
+                errors.append(f"{prefix}.cards：同一个 label 不能用两次，每张卡讲一个不同的角度。")
+            if budget.get("needs_depth_card") and labels and not set(labels) & set(C.CARD_DEPTH_LABELS):
+                errors.append(f"{prefix}.cards：这条素材足够深入，至少要有一张“{' / '.join(C.CARD_DEPTH_LABELS)}”卡片（从 facts 的各来源报道或 background 里找内容）。")
             refs: list[int] = []
             for n, sentence in enumerate(narration):
                 ref = sentence.get("card") if isinstance(sentence, Mapping) else None
@@ -275,13 +355,27 @@ def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
             missing = [str(i) for i in range(1, len(cards) + 1) if i not in refs]
             if refs and missing:
                 errors.append(f"{prefix}.narration：第 {'、'.join(missing)} 张卡没有被任何一句旁白讲到。")
-            if story_units > C.BUDGET_HEADLINE_NARRATION_MAX:
-                errors.append(f"{prefix}.narration：头条旁白合计超过 {C.BUDGET_HEADLINE_NARRATION_MAX} 字（当前 {story_units} 字）。")
+            _range_error(errors, f"{prefix}.narration", story_units, budget["headline_narration"], "头条旁白合计")
+            story_text = " ".join(t for _, t in texts)
+            if _CAVEAT.search(material) and not _CAVEAT_KEPT.search(plain(story_text)):
+                errors.append(f"{prefix}：素材里提到“尚未验证 / 尚未确定”之类的限定，请用“还没确定”卡片或一句旁白保留这层意思。")
         else:
-            _check_text(errors, f"{prefix}.point", story.get("point"), maximum=C.BUDGET_FLASH_POINT_MAX)
+            _check_text(errors, f"{prefix}.point", story.get("point"), maximum=C.BUDGET_FLASH_POINT_MAX, marks=True)
             texts.append((f"{prefix}.point", str(story.get("point") or "")))
-            if story_units > C.BUDGET_FLASH_NARRATION_MAX:
-                errors.append(f"{prefix}.narration：快讯旁白合计超过 {C.BUDGET_FLASH_NARRATION_MAX} 字（当前 {story_units} 字）。")
+            lo_s, hi_s = budget["flash_sentences"]
+            why_required = lo_s >= 2
+            _check_text(errors, f"{prefix}.why", story.get("why"), maximum=C.BUDGET_FLASH_WHY_MAX, required=why_required, marks=True)
+            if story.get("why"):
+                texts.append((f"{prefix}.why", str(story.get("why") or "")))
+                if story.get("point") and _duplicates(str(story["point"]), str(story["why"])):
+                    errors.append(f"{prefix}.why：和 point 几乎是同一句话。why 要写“所以呢”：反差、影响或各方反应。")
+            if not lo_s <= len(narration) <= hi_s:
+                errors.append(f"{prefix}.narration：这条快讯要写 {lo_s}–{hi_s} 句旁白（当前 {len(narration)} 句）。")
+            cards_n = 2 if story.get("why") else 1
+            refs = [s.get("card") for s in narration if isinstance(s, Mapping) and s.get("card") is not None]
+            if refs and (any(not isinstance(r, int) or not 1 <= r <= cards_n for r in refs) or refs != sorted(refs)):
+                errors.append(f"{prefix}.narration：快讯的 card 只能是 1（讲 point）或 2（讲 why），并且从小到大。")
+            _range_error(errors, f"{prefix}.narration", story_units, budget["flash_narration"], "快讯旁白合计")
         if material:
             for path, text in texts:
                 bad = _unsupported_tokens(text, material)
@@ -289,7 +383,7 @@ def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
                     errors.append(f"{path}：这些数字或英文在该新闻素材里找不到：{'、'.join(bad)}。请改成素材里的原样写法。")
     total += units(hook.get("text"))
     if total > C.BUDGET_TOTAL_NARRATION_MAX:
-        errors.append(f"全片旁白合计超过 {C.BUDGET_TOTAL_NARRATION_MAX} 字（当前 {total} 字），请删减快讯或头条旁白。")
+        errors.append(f"全片旁白合计超过 {C.BUDGET_TOTAL_NARRATION_MAX} 字（约 {C.RUNDOWN_MAX_SECONDS / 60:.0f} 分钟，当前 {total} 字），请减少快讯条数或删减旁白。")
     return errors
 
 
@@ -297,15 +391,19 @@ def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
 # deterministic fallback
 # ---------------------------------------------------------------------------
 _SENT_SPLIT = re.compile(r"(?<=[。！？；;])")
+_ATTRIBUTION = re.compile(r"(称|表示|报道|指出|认为|介绍|透露|宣布|回应|据.{0,12})[，,：:]?$")
+_WHY = re.compile(r"若|意味|将使|有望|影响|担忧|压力|风险|首次|最大|最高|第一|超过|相当于|为.{0,6}的.{0,3}倍")
+_HOW = re.compile(r"通过|采用|基于|架构|方法|方式|利用|由.{0,8}(层|模块)")
 
 
 def _sentences(text: str) -> list[str]:
-    parts = [p.strip() for p in _SENT_SPLIT.split(str(text or "")) if p.strip()]
+    parts = [p.strip() for p in _SENT_SPLIT.split(re.sub(r"\s+", " ", str(text or ""))) if p.strip()]
     return [re.sub(r"[；;]$", "。", p) for p in parts]
 
 
 def _clauses(text: str) -> list[str]:
-    return [p for p in re.split(r"(?<=[，,：:、])", text) if p.strip()]
+    # 、 joins list items ("电力公司、监管机构"), so it is never a cut point.
+    return [p for p in re.split(r"(?<=[，,：:])", text) if p.strip()]
 
 
 def _fit(text: str, maximum: int, *, terminal: bool = False) -> str:
@@ -328,6 +426,27 @@ def _fit(text: str, maximum: int, *, terminal: bool = False) -> str:
         out = out.rstrip("。.") + "。"
     elif not terminal:
         out = out.rstrip("。")
+    return out
+
+
+def _spoken(sentence: str, limit: int = 2) -> list[str]:
+    """Split one source sentence into up to ``limit`` speakable sentences of <= BUDGET_SENTENCE_MAX."""
+
+    out: list[str] = []
+    rest = re.sub(r"\s+", " ", sentence).strip()
+    lead = re.match(r"^(据.{1,30}?)[，,]", rest)
+    if lead and units(rest) > C.BUDGET_SENTENCE_MAX:
+        rest = rest[lead.end():]  # an attribution alone is not a sentence; the card keeps it
+    while rest and len(out) < limit:
+        piece = _fit(rest, C.BUDGET_SENTENCE_MAX, terminal=True)
+        out.append(piece)
+        consumed = plain(piece).rstrip("。")
+        index = rest.find(consumed)
+        if index < 0 or units(consumed) < 6:
+            break
+        rest = rest[index + len(consumed):].lstrip("，,：:、。；; ")
+        if units(rest) < 8:
+            break
     return out
 
 
@@ -365,14 +484,158 @@ def _mark_number(text: str) -> str:
     return text[: match.start()] + "【" + match.group(0) + "】" + text[match.end():]
 
 
-_ATTRIBUTION = re.compile(r"(称|表示|报道|指出|认为|介绍|透露|宣布|回应|据.{0,12})[，,：:]?$")
+def _card_headline(sentence: str, *, first: bool = False) -> str:
+    """Pick the clause that reads best as a short conclusion (numbers win, attributions lose)."""
+
+    clauses = [c.strip().rstrip("，,：:、。；;") for c in _clauses(sentence) if c.strip()]
+    clauses = [c for c in clauses if c and not _ATTRIBUTION.search(c) and units(c) >= 4] or clauses or [sentence]
+
+    def score(clause: str) -> tuple[int, int]:
+        fits = units(clause) <= C.BUDGET_CARD_HEADLINE_MAX
+        return ((2 if fits else 0) + (2 if _NUMBER.search(clause) else 0) + (1 if 6 <= units(clause) else 0), -units(clause))
+
+    best = clauses[0] if first and units(clauses[0]) <= C.BUDGET_CARD_HEADLINE_MAX + 4 else max(clauses, key=score)
+    return _fit(best, C.BUDGET_CARD_HEADLINE_MAX)
 
 
-def _card_headline(sentence: str) -> str:
-    clauses = [c.strip() for c in _clauses(sentence) if c.strip()]
-    while len(clauses) > 1 and (_ATTRIBUTION.search(clauses[0].rstrip("，,：:")) or units(clauses[0]) < 4):
-        clauses = clauses[1:]
-    return _fit(clauses[0] if clauses else sentence, C.BUDGET_CARD_HEADLINE_MAX)
+def _label_for(sentence: str, kind: str) -> str:
+    if _CAVEAT.search(sentence):
+        return "还没确定"
+    if kind == "background":
+        return "背景"
+    if kind == "report" and _ATTRIBUTION_WORDS.search(sentence):
+        return "各方说法"
+    if _WHY.search(sentence):
+        return "为什么重要"
+    if _HOW.search(sentence):
+        return "怎么做到的"
+    if _NUMBER.search(sentence):
+        return "关键数字"
+    return "下一步" if re.search(r"计划|将于|下一步|随后|即将", sentence) else ""
+
+
+def _candidate_sentences(m: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """(sentence, kind) from the pack in reading order: summary, digest, reports/coverage, background."""
+
+    pack = m.get("_pack") or {}
+    out: list[tuple[str, str]] = []
+    for fact in pack.get("facts") or []:
+        kind = "report" if fact.get("kind") in {"来源报道", "同事件报道"} else "core"
+        for s in _sentences(fact.get("text")):
+            if kind == "report" and fact.get("source") and not _ATTRIBUTION_WORDS.search(s[:12]):
+                s = f"据{fact['source']}，{s}" if units(fact["source"]) <= 12 else s
+            out.append((s, kind))
+    for bg in pack.get("background") or []:
+        for s in _sentences(bg.get("text"))[:1]:
+            out.append((f"此前，{s}" if not s.startswith("此前") else s, "background"))
+    seen: list[str] = []
+    unique: list[tuple[str, str]] = []
+    for s, kind in out:
+        if units(s) < 10 or M.near_duplicate(s, seen, 0.5):
+            continue
+        seen.append(s)
+        unique.append((s, kind))
+    return unique
+
+
+def _fallback_headline(item_id: str, m: Mapping[str, Any]) -> dict[str, Any]:
+    budget = m["budget"]
+    lo_cards, hi_cards = budget["cards"]
+    lo_chars, hi_chars = budget["headline_narration"]
+    sentences = _candidate_sentences(m) or [(m["title"] + "。", "core")]
+    cards: list[dict[str, Any]] = []
+    narration: list[dict[str, Any]] = []
+    used_labels: set[str] = set()
+    story_units = 0
+
+    def add(sentence: str, label: str) -> bool:
+        nonlocal story_units
+        headline = _card_headline(sentence, first=not cards)
+        body = _fit(sentence, C.BUDGET_CARD_BODY_MAX)
+        if _duplicates(headline, body) or label in used_labels:
+            return False
+        said = [n["text"] for n in narration]
+        pieces = 2 if story_units < lo_chars * 0.6 else 1  # two sentences per card early on, one once the story has its core
+        spoken = [t for t in _spoken(sentence, pieces) if not M.near_duplicate(t, said, 0.5)]
+        if not spoken:
+            return False
+        cost = sum(units(s) for s in spoken)
+        if story_units + cost > hi_chars:
+            spoken = spoken[:1]
+            cost = units(spoken[0])
+            if story_units + cost > hi_chars:
+                return False
+        cards.append({"label": label, "headline": headline, "body": body})
+        narration.extend({"text": s, "card": len(cards)} for s in spoken)
+        used_labels.add(label)
+        story_units += cost
+        return True
+
+    first = sentences[0][0]
+    add(first, "发生了什么")
+    rest = sentences[1:]
+    if budget.get("needs_depth_card"):
+        # Guarantee one depth card: an attributed report, a stated significance, or background.
+        for s, kind in rest:
+            label = _label_for(s, kind)
+            if label in C.CARD_DEPTH_LABELS and add(s, label):
+                break
+    caveat = next(((s, k) for s, k in sentences if _CAVEAT.search(s)), None)
+    if caveat and caveat[0] != first:
+        add(caveat[0], "还没确定")  # the material's own caveat is never dropped
+    for s, kind in rest:
+        if len(cards) >= hi_cards:
+            break
+        if story_units >= lo_chars + 0.4 * (hi_chars - lo_chars) and len(cards) >= lo_cards:
+            break  # leave room in the 3-minute budget for the day's flashes
+        label = _label_for(s, kind)
+        if label and label != "还没确定":
+            add(s, label)
+    for s, kind in rest:  # top up to the minimum card count with any remaining label
+        if len(cards) >= lo_cards:
+            break
+        for label in ("关键数字", "怎么做到的", "各方说法" if kind == "report" else "下一步", "背景" if kind == "background" else "为什么重要"):
+            if label not in used_labels and add(s, label):
+                break
+    if len(cards) < 2:
+        pieces = _clauses(first)
+        half = max(1, len(pieces) // 2)
+        a, b = "".join(pieces[:half]), "".join(pieces[half:]) or m["title"]
+        cards = [{"label": "发生了什么", "headline": _card_headline(a), "body": _fit(first, C.BUDGET_CARD_BODY_MAX)},
+                 {"label": "关键数字", "headline": _card_headline(b), "body": _fit(b + "。", C.BUDGET_CARD_BODY_MAX)}]
+        narration = [{"text": s, "card": 1} for s in _spoken(a + "。", 1)] + [{"text": s, "card": 2} for s in _spoken(b, 1)]
+    order = {label: i for i, label in enumerate(CARD_LABELS)}
+    first_card = cards[0]
+    tail = sorted(cards[1:], key=lambda c: order.get(c["label"], 99) if c["label"] != "还没确定" else 98)
+    mapping = {id(c): i + 1 for i, c in enumerate([first_card, *tail])}
+    old_index = {i + 1: id(c) for i, c in enumerate(cards)}
+    narration = sorted(({"text": n["text"], "card": mapping[old_index[n["card"]]]} for n in narration), key=lambda n: n["card"])
+    return {"item_id": item_id, "role": "headline", "subject": _subject(m), "title": _fit(m["title"], C.BUDGET_TITLE_MAX),
+            "cards": [first_card, *tail], "narration": narration}
+
+
+def _fallback_flash(item_id: str, m: Mapping[str, Any]) -> dict[str, Any]:
+    budget = m["budget"]
+    lo_s, hi_s = budget["flash_sentences"]
+    _, hi_chars = budget["flash_narration"]
+    sentences = _candidate_sentences(m) or [(m["title"] + "。", "core")]
+    point_source = sentences[0][0]
+    fresh = [(s, k) for s, k in sentences[1:] if not M.near_duplicate(s, [point_source], 0.3)]
+    why_source = next((s for s, k in fresh if _label_for(s, k) in {"为什么重要", "各方说法", "关键数字", "还没确定", "背景"}), "")
+    if not why_source and fresh:
+        why_source = fresh[0][0]
+    title = _fit(m["hot_title"] if m["hot_title"] and units(m["hot_title"]) <= C.BUDGET_TITLE_MAX else m["title"], C.BUDGET_TITLE_MAX)
+    story: dict[str, Any] = {"item_id": item_id, "role": "flash", "subject": _subject(m), "title": title,
+                             "point": _mark_number(_fit(point_source, C.BUDGET_FLASH_POINT_MAX))}
+    narration = [{"text": s, "card": 1} for s in _spoken(point_source, 2 if not why_source else 1)]
+    why = _fit(why_source, C.BUDGET_FLASH_WHY_MAX) if why_source else ""
+    if why and not _duplicates(story["point"], why):
+        story["why"] = why
+        narration += [{"text": s, "card": 2} for s in _spoken(why_source, hi_s - len(narration))]
+    while sum(units(n["text"]) for n in narration) > hi_chars and len(narration) > lo_s:
+        narration.pop()
+    story["narration"] = narration[:hi_s]
+    return story
 
 
 def fallback_plan(selection: Mapping[str, Any]) -> dict[str, Any]:
@@ -381,60 +644,30 @@ def fallback_plan(selection: Mapping[str, Any]) -> dict[str, Any]:
     headlines = [i for i in rec.get("headlines") or [] if i in materials][: C.RUNDOWN_MAX_HEADLINES]
     if not headlines and materials:
         headlines = [next(iter(materials))]
-    flashes = [i for i in rec.get("flashes") or [] if i in materials and i not in headlines][: C.RUNDOWN_MAX_STORIES - len(headlines)]
+    flashes = [i for i in rec.get("flashes") or [] if i in materials and i not in headlines][: C.RUNDOWN_MAX_FLASHES]
     lead = materials[headlines[0]]
     hook_source = lead["hot_title"] if lead["hot_title"] and units(lead["hot_title"]) <= C.BUDGET_HOOK_MAX else lead["title"]
     first_sentences = _sentences(lead["summary"] or lead["digest"]) or [lead["title"]]
     plan: dict[str, Any] = {
-        "version": C.V6_VERSION,
+        "version": PLAN_VERSION,
         "writer": {"source": "deterministic-fallback"},
-        "picks": {"headlines": headlines, "flashes": flashes},
+        "picks": {"headlines": headlines, "flashes": []},
         "hook": {"text": _mark_number(_fit(hook_source, C.BUDGET_HOOK_MAX)), "keyfact": _fit(first_sentences[0], C.BUDGET_KEYFACT_MAX)},
         "stories": [],
     }
     used_total = units(plan["hook"]["text"])
     for item_id in headlines:
-        m = materials[item_id]
-        sentences = _sentences(m["summary"]) + _sentences(m["digest"])
-        sentences = [s for i, s in enumerate(sentences) if s not in sentences[:i]] or [m["title"] + "。"]
-        cards: list[dict[str, Any]] = []
-        narration: list[dict[str, Any]] = []
-        story_units = 0
-        for sentence in sentences:
-            if len(cards) >= 3:
-                break
-            body = _fit(sentence, C.BUDGET_CARD_BODY_MAX)
-            spoken = _fit(sentence, C.BUDGET_SENTENCE_MAX, terminal=True)
-            if story_units + units(spoken) > C.BUDGET_HEADLINE_NARRATION_MAX - 10:
-                break
-            headline = _card_headline(sentence)
-            cards.append({"label": CARD_LABELS[len(cards)], "headline": headline, "body": body})
-            narration.append({"text": spoken, "card": len(cards)})
-            story_units += units(spoken)
-        if len(cards) < C.HEADLINE_CARDS_MIN:
-            # Split one long sentence into two cards so the page never has a single orphan card.
-            pieces = _clauses(sentences[0])
-            half = max(1, len(pieces) // 2)
-            first, second = "".join(pieces[:half]), "".join(pieces[half:]) or m["title"]
-            cards = [
-                {"label": CARD_LABELS[0], "headline": _card_headline(first), "body": _fit(first, C.BUDGET_CARD_BODY_MAX)},
-                {"label": CARD_LABELS[1], "headline": _card_headline(second), "body": _fit(second, C.BUDGET_CARD_BODY_MAX)},
-            ]
-            narration = [{"text": _fit(first, C.BUDGET_SENTENCE_MAX, terminal=True), "card": 1}, {"text": _fit(second, C.BUDGET_SENTENCE_MAX, terminal=True), "card": 2}]
-        plan["stories"].append({"item_id": item_id, "role": "headline", "subject": _subject(m), "title": _fit(m["title"], C.BUDGET_TITLE_MAX),
-                                "cards": cards, "narration": narration})
-        used_total += sum(units(n["text"]) for n in narration)
-    for item_id in list(flashes):
-        m = materials[item_id]
-        point_source = (_sentences(m["summary"]) or _sentences(m["digest"]) or [m["title"]])[0]
-        title = _fit(m["hot_title"] if m["hot_title"] and units(m["hot_title"]) <= C.BUDGET_TITLE_MAX else m["title"], C.BUDGET_TITLE_MAX)
-        sentence = _fit(title + "。", C.BUDGET_SENTENCE_MAX, terminal=True)
-        if used_total + units(sentence) > C.BUDGET_TOTAL_NARRATION_MAX:
-            plan["picks"]["flashes"].remove(item_id)
+        story = _fallback_headline(item_id, materials[item_id])
+        plan["stories"].append(story)
+        used_total += sum(units(n["text"]) for n in story["narration"])
+    for item_id in flashes:
+        story = _fallback_flash(item_id, materials[item_id])
+        cost = sum(units(n["text"]) for n in story["narration"])
+        if used_total + cost > C.BUDGET_TOTAL_NARRATION_MAX:
             continue
-        plan["stories"].append({"item_id": item_id, "role": "flash", "subject": _subject(m), "title": title,
-                                "point": _fit(point_source, C.BUDGET_FLASH_POINT_MAX), "narration": [{"text": sentence}]})
-        used_total += units(sentence)
+        plan["picks"]["flashes"].append(item_id)
+        plan["stories"].append(story)
+        used_total += cost
     return plan
 
 
@@ -449,12 +682,12 @@ def finalize(plan: Mapping[str, Any], selection: Mapping[str, Any], *, source: s
     narration_units: list[dict[str, Any]] = []
     ledger: list[dict[str, Any]] = []
 
-    def add_unit(scene_id: str, text: str, *, card: int | None = None) -> None:
+    def add_unit(scene_id: str, text: str, *, card: int | None = None, caption: bool = True) -> None:
         display = plain(text)
         normalized = normalize_with_ledger(display)
         unit_id = f"u{len(narration_units) + 1:02d}"
         narration_units.append({"unit_id": unit_id, "scene_id": scene_id, "display_text": normalized.display_text,
-                                "spoken_text": normalized.spoken_text, "card": card})
+                                "spoken_text": normalized.spoken_text, "card": card, "caption": caption})
         if normalized.rewrites:
             ledger.append({"unit_id": unit_id, "rewrites": list(normalized.rewrites)})
 
@@ -466,32 +699,45 @@ def finalize(plan: Mapping[str, Any], selection: Mapping[str, Any], *, source: s
     hook = plan.get("hook") or {}
     if first_headline:
         m = materials.get(str(first_headline.get("item_id")), {})
-        brand = find_brand(str(first_headline.get("subject") or "")) or find_brand(m.get("title") or "")
+        brand = find_brand(str(first_headline.get("subject") or ""))
         scenes.append({"scene_id": "hook", "kind": "hook", "category": m.get("category", "other"), "section": m.get("category_label", ""),
                        "subject": first_headline.get("subject"), "logo": (brand or {}).get("logo_path", ""),
                        "hook": hook.get("text"), "keyfact": hook.get("keyfact"), "progress": {"role": "头条", "index": 1, "total": total_stories}})
-        add_unit("hook", str(hook.get("text") or "") + ("" if _TERMINAL.search(plain(hook.get("text"))) else "。"))
+        # The hook is already on screen in large type, so its caption stays off-screen (it remains in the SRT).
+        add_unit("hook", str(hook.get("text") or "") + ("" if _TERMINAL.search(plain(hook.get("text"))) else "。"), caption=False)
+    recap: list[dict[str, Any]] = []
     for n, story in enumerate(stories, 1):
         m = materials.get(str(story.get("item_id")), {})
-        brand = find_brand(str(story.get("subject") or "")) or find_brand(m.get("title") or "")
-        role = "头条" if story.get("role") == "headline" else "快讯"
+        # The logo follows the subject the writer chose; a brand merely mentioned in the title
+        # (e.g. "Karpathy 用 Claude ……") must not put another company's logo on the story.
+        brand = find_brand(str(story.get("subject") or ""))
+        is_headline = story.get("role") == "headline"
+        role = "头条" if is_headline else "快讯"
         scene_id = f"story-{n:02d}"
-        scene = {"scene_id": scene_id, "kind": "story" if story.get("role") == "headline" else "flash", "item_id": story.get("item_id"),
+        scene = {"scene_id": scene_id, "kind": "story" if is_headline else "flash", "item_id": story.get("item_id"),
                  "category": m.get("category", "other"), "section": m.get("category_label", ""), "subject": story.get("subject"),
                  "logo": (brand or {}).get("logo_path", ""), "title": story.get("title"),
                  "progress": {"role": role, "index": n, "total": total_stories},
                  "links": m.get("links", {}), "source": m.get("source", "")}
-        if story.get("role") == "headline":
+        if is_headline:
             scene["cards"] = [dict(card) for card in story.get("cards") or []]
         else:
             scene["point"] = story.get("point")
+            if story.get("why"):
+                scene["why"] = story.get("why")
         scenes.append(scene)
-        for sentence in story.get("narration") or []:
-            add_unit(scene_id, str(sentence.get("text") or ""), card=sentence.get("card") if story.get("role") == "headline" else None)
-    scenes.append({"scene_id": "outro", "kind": "outro", "text": C.OUTRO_TEXT, "progress": None})
+        recap.append({"role": role, "title": plain(story.get("title"))})
+        flash_cards = 2 if story.get("why") else 1
+        for k, sentence in enumerate(story.get("narration") or []):
+            card = sentence.get("card")
+            if not is_headline:
+                card = card if isinstance(card, int) and 1 <= card <= flash_cards else (1 if k == 0 or flash_cards == 1 else 2)
+            add_unit(scene_id, str(sentence.get("text") or ""), card=card)
+    scenes.append({"scene_id": "outro", "kind": "outro", "text": C.OUTRO_TEXT, "recap": recap, "progress": None})
     add_unit("outro", C.OUTRO_TEXT)
     return {
         "version": C.V6_VERSION,
+        "plan_version": PLAN_VERSION,
         "plan_source": source,
         "counts": {"headlines": headline_count, "flashes": flash_count},
         "scenes": scenes,

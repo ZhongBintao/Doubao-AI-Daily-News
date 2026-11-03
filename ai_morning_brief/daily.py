@@ -131,7 +131,7 @@ def stage_bootstrap(run: Run) -> dict[str, Any]:
 
 def stage_fetch(run: Run) -> dict[str, Any]:
     client = run.client()
-    snapshot = newsroom.gather(client, run.date)
+    snapshot = newsroom.enrich(client, newsroom.gather(client, run.date))
     _write(run.art / "aihot_snapshot.json", snapshot)
     aired = newsroom.load_aired(run.ledger_path)
     recent = [e for e in aired if str(e.get("date") or "") >= (run.date - timedelta(days=C.AIRED_LOOKBACK_DAYS)).isoformat()]

@@ -4,11 +4,16 @@ Pipeline::
 
     gather()            fetch selected items, the daily report, hot topics,
                         all-items scores and story digests for one edition
+    enrich()            second AIHOT-only pass for the strongest events: keyword
+                        search for more AIHOT coverage and related stories
     build_candidates()  merge the layers per item, then cluster reports of the
                         same event and compute one heat score per event
-    plan_rundown()      apply the aired ledger and choose 1-2 headlines plus
-                        flashes (max 4 stories), and the candidate pool that a
-                        writer model may choose from
+    plan_rundown()      apply the aired ledger and let the day's content decide
+                        the count: heavy events with enough material become
+                        headlines (max 3), the rest above the flash line become
+                        flashes (max 5), capped at an estimated 3 minutes
+
+Only AIHOT's own API is read; original article links are never opened.
 
 Everything here is deterministic. A writer model may later swap picks, but
 only inside the pool produced here (see ``director.py``).
@@ -24,6 +29,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from . import config as C
+from .brands import find_brand
+from . import material as M
 from .aihot_v2 import AIHotV2Client, AIHotV2Error
 
 SHANGHAI = timezone(timedelta(hours=8))
@@ -120,6 +127,53 @@ def gather(client: AIHotV2Client, run_date: date, *, now: datetime | None = None
             if story:
                 stories[story_id] = story
     snapshot["stories"] = stories
+    return snapshot
+
+
+def enrich(client: AIHotV2Client, snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Second, AIHOT-only fetch pass for the strongest events (mutates ``snapshot``).
+
+    * keyword search over all public AIHOT items of the last 7 days, so an event
+      gets every AIHOT summary written about it (not only the selected one);
+    * AIHOT "related stories" of the top hot events, used as labelled background.
+
+    Results are frozen into the snapshot, so selection stays reproducible.
+    """
+
+    searches: dict[str, Any] = snapshot.setdefault("searches", {})
+    search_for: dict[str, list[str]] = snapshot.setdefault("search_for", {})
+    related: dict[str, Any] = snapshot.setdefault("related_stories", {})
+    stories = snapshot.get("stories") or {}
+    clusters = cluster_candidates(build_candidates(snapshot))
+    related_events = 0
+    for cluster in clusters[: C.ENRICH_CLUSTERS]:
+        lead = cluster.lead
+        queries: list[str] = []
+        for query in M.search_queries(lead.title, lead.hot_title):
+            if query not in searches:
+                try:
+                    searches[query] = [M.trim_item(i) for i in client.search(query, limit=C.SEARCH_LIMIT)]
+                except AIHotV2Error as exc:
+                    snapshot["errors"].append(f"search {query}: {exc}")
+                    searches[query] = []
+            queries.append(query)
+            if len(searches[query]) >= 3:
+                break  # the specific query already found coverage; skip the broad one
+        search_for[lead.item_id] = queries
+        story = next((stories[m.story_id] for m in cluster.members if m.story_id and m.story_id in stories), None)
+        if story and related_events < C.ENRICH_RELATED_EVENTS:
+            related_events += 1
+            for ref in (story.get("related") or [])[: C.ENRICH_RELATED_PER_EVENT]:
+                public_id = str(ref.get("publicId") or "")
+                if not public_id or public_id in related or public_id in stories:
+                    continue
+                try:
+                    rel = client.story(public_id)
+                except AIHotV2Error as exc:
+                    snapshot["errors"].append(f"related story {public_id}: {exc}")
+                    rel = None
+                if rel:
+                    related[public_id] = M.trim_story(rel)
     return snapshot
 
 
@@ -287,12 +341,15 @@ class EventCluster:
     heat: float
     aired: bool = False
     aired_reason: str = ""
+    pack: dict[str, Any] = field(default_factory=dict)
+    budget: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "key": self.key, "heat": self.heat, "aired": self.aired, "aired_reason": self.aired_reason,
             "lead": candidate_dict(self.lead), "member_ids": [m.item_id for m in self.members],
             "member_titles": [m.title for m in self.members],
+            "pack": self.pack, "budget": self.budget or M.story_budget(self.pack),
         }
 
 
@@ -342,6 +399,81 @@ def cluster_candidates(candidates: Iterable[Candidate]) -> list[EventCluster]:
             lead.heat = round(lead.heat + extra, 2)
         cluster.heat = lead.heat
     return sorted(clusters, key=lambda k: (-k.heat, k.key))
+
+
+def _cluster_story(cluster: EventCluster, stories: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    return next((stories[m.story_id] for m in cluster.members if m.story_id and m.story_id in stories), None)
+
+
+def _linked(a: EventCluster, b: EventCluster, stories: Mapping[str, Any]) -> bool:
+    """True when AIHOT's story of ``a`` covers ``b``: a related story, or one of its per-source reports."""
+
+    story = _cluster_story(a, stories)
+    if not story:
+        return False
+    refs = story.get("related") or []
+    ref_ids = {str(r.get("publicId") or "") for r in refs}
+    if any(m.story_id and m.story_id in ref_ids for m in b.members):
+        return True
+    if any(same_event(str(r.get("title") or ""), m.title) for r in refs for m in b.members):
+        return True
+    for report in story.get("reports") or []:
+        text = f"{report.get('title') or ''} {report.get('summary') or ''}"
+        for m in b.members:
+            if same_event(str(report.get("title") or ""), m.title) or (m.summary and M.near_duplicate(m.summary, [text], 0.42)):
+                return True
+    return False
+
+
+def merge_related_events(clusters: list[EventCluster], snapshot: Mapping[str, Any]) -> list[EventCluster]:
+    """Fold events of one storyline into the strongest of them.
+
+    AIHOT often splits one storyline (an IPO filing, its revenue figures, its
+    compute commitments) into separate events. Two events merge when they
+    share a subject and AIHOT's story of either one lists the other as a
+    related story or carries it among its per-source reports. Telling them as
+    one story is deeper and avoids repeating the subject in several stories.
+    """
+
+    stories = snapshot.get("stories") or {}
+    current = list(clusters)
+    while True:  # a merge can link a host to further events, so repeat until stable
+        merged = _merge_pass(current, stories)
+        if len(merged) == len(current):
+            return merged
+        current = merged
+
+
+def _merge_pass(clusters: list[EventCluster], stories: Mapping[str, Any]) -> list[EventCluster]:
+    merged: list[EventCluster] = []
+    for cluster in sorted(clusters, key=lambda k: (-k.heat, k.key)):
+        subject = find_subject(cluster.lead.hot_title or cluster.lead.title).lower()
+        target = None
+        for host in merged:
+            if subject and find_subject(host.lead.hot_title or host.lead.title).lower() == subject and (
+                _linked(host, cluster, stories) or _linked(cluster, host, stories)
+            ):
+                target = host
+                break
+        if target is None:
+            merged.append(cluster)
+            continue
+        target.members.extend(cluster.members)
+        lead = target.lead
+        for m in cluster.members:  # keep the strongest signals of the storyline on the lead
+            lead.in_daily, lead.daily_lead = lead.in_daily or m.in_daily, lead.daily_lead or m.daily_lead
+            if m.story_id and not lead.story_id:
+                lead.story_id, lead.digest, lead.source_count = m.story_id, m.digest, m.source_count
+                lead.hot_rank, lead.hot_title = lead.hot_rank or m.hot_rank, lead.hot_title or m.hot_title
+        lead.heat, lead.heat_parts = _candidate_heat(lead)
+        lead.heat_parts["coverage"] = min(6, 2 * (len(target.members) - 1))
+        target.heat = lead.heat = round(sum(lead.heat_parts.values()), 2)
+    return sorted(merged, key=lambda k: (-k.heat, k.key))
+
+
+def find_subject(title: str) -> str:
+    brand = find_brand(title or "")
+    return str((brand or {}).get("name") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -405,34 +537,57 @@ def mark_aired(clusters: list[EventCluster], aired: Iterable[Mapping[str, Any]],
 # rundown
 # ---------------------------------------------------------------------------
 def plan_rundown(clusters: list[EventCluster]) -> dict[str, Any]:
+    """Let the day's content decide how many stories run.
+
+    * headline: heavy (>= HEAT_HEAVY_THRESHOLD), not aired, and with enough AIHOT
+      material to tell it in depth; at most RUNDOWN_MAX_HEADLINES;
+    * flash: everything else above HEAT_FLASH_THRESHOLD (heavy-but-thin events
+      included); at most RUNDOWN_MAX_FLASHES, or RUNDOWN_QUIET_FLASHES on a quiet day;
+    * the estimated length is capped at RUNDOWN_MAX_SECONDS by dropping the
+      weakest flashes first, then the weakest extra headline.
+    """
+
     ranked = sorted(clusters, key=lambda k: (-k.heat, k.key))
     usable = [k for k in ranked if k.lead.title]
-    heavy = [k for k in usable if k.heat >= C.HEAT_HEAVY_THRESHOLD and not k.aired]
     if not usable:
-        return {"mode": "no-news", "headlines": [], "flashes": [], "pool": [], "heavy_count": 0}
-    headlines = heavy[: C.RUNDOWN_MAX_HEADLINES] if heavy else usable[:1]
-    mode = "double" if len(headlines) == 2 else ("normal" if heavy else "quiet")
-    remaining = [k for k in usable if k not in headlines]
-    flash_target = (C.RUNDOWN_MAX_STORIES - len(headlines)) if mode != "quiet" else C.RUNDOWN_QUIET_FLASHES
-    flash_target = min(flash_target, C.RUNDOWN_DEFAULT_FLASHES)
-    flashes = [k for k in remaining if k.heat >= C.HEAT_FLASH_THRESHOLD][:flash_target]
-    if len(flashes) < min(C.RUNDOWN_QUIET_FLASHES, flash_target):
-        for k in remaining:
-            if k not in flashes and not k.aired:
-                flashes.append(k)
-            if len(flashes) >= min(C.RUNDOWN_QUIET_FLASHES, flash_target):
-                break
-    pool = [k for k in usable if not k.aired][: C.CANDIDATE_POOL_SIZE]
+        return {"mode": "no-news", "headlines": [], "flashes": [], "pool": [], "heavy_count": 0, "dropped": [], "estimated_seconds": 0.0}
+    for k in usable:
+        k.budget = k.budget or M.story_budget(k.pack)
+    fresh = [k for k in usable if not k.aired]
+    heavy = [k for k in fresh if k.heat >= C.HEAT_HEAVY_THRESHOLD]
+    headlines = [k for k in heavy if k.budget["can_headline"]][: C.RUNDOWN_MAX_HEADLINES]
+    mode = "multi" if len(headlines) >= 2 else "normal"
+    if not headlines:
+        # Quiet day: one light headline, preferring an event that has material to tell.
+        top = (fresh or usable)[:3]
+        headlines = [next((k for k in top if k.budget["can_headline"]), top[0])]
+        mode = "quiet"
+    flash_cap = C.RUNDOWN_QUIET_FLASHES if mode == "quiet" else C.RUNDOWN_MAX_FLASHES
+    flashes = [k for k in fresh if k not in headlines and k.heat >= C.HEAT_FLASH_THRESHOLD][:flash_cap]
+    dropped: list[dict[str, Any]] = []
+
+    def estimate() -> float:
+        return round(4.0 + 3.0 + sum(M.estimate_seconds(k.budget, "headline") for k in headlines)
+                     + sum(M.estimate_seconds(k.budget, "flash") for k in flashes), 1)
+
+    while estimate() > C.RUNDOWN_MAX_SECONDS and (flashes or len(headlines) > 1):
+        victim = flashes.pop() if flashes else headlines.pop()
+        dropped.append({"item_id": victim.lead.item_id, "title": victim.lead.title, "heat": victim.heat, "reason": "超出 3 分钟时长上限"})
+    pool = [k for k in fresh][: C.CANDIDATE_POOL_SIZE]
     for k in headlines + flashes:
         if k not in pool:
             pool.append(k)
-    return {"mode": mode, "heavy_count": len(heavy), "headlines": headlines, "flashes": flashes, "pool": pool}
+    return {"mode": mode, "heavy_count": len(heavy), "headlines": headlines, "flashes": flashes, "pool": pool,
+            "dropped": dropped, "estimated_seconds": estimate()}
 
 
 def select_edition(snapshot: Mapping[str, Any], aired: Iterable[Mapping[str, Any]], run_date: date) -> dict[str, Any]:
     """Full deterministic selection report written to artifacts/selection.json."""
 
-    clusters = cluster_candidates(build_candidates(snapshot))
+    clusters = merge_related_events(cluster_candidates(build_candidates(snapshot)), snapshot)
+    for cluster in clusters:
+        cluster.pack = M.build_pack(cluster, snapshot)
+        cluster.budget = M.story_budget(cluster.pack)
     mark_aired(clusters, aired, run_date)
     rundown = plan_rundown(clusters)
     return {
@@ -442,6 +597,9 @@ def select_edition(snapshot: Mapping[str, Any], aired: Iterable[Mapping[str, Any
         "mode": rundown["mode"],
         "heavy_count": rundown["heavy_count"],
         "thresholds": {"heavy": C.HEAT_HEAVY_THRESHOLD, "flash": C.HEAT_FLASH_THRESHOLD},
+        "limits": {"headlines": C.RUNDOWN_MAX_HEADLINES, "flashes": C.RUNDOWN_MAX_FLASHES, "seconds": C.RUNDOWN_MAX_SECONDS},
+        "estimated_seconds": rundown["estimated_seconds"],
+        "dropped": rundown["dropped"],
         "recommended": {
             "headlines": [k.lead.item_id for k in rundown["headlines"]],
             "flashes": [k.lead.item_id for k in rundown["flashes"]],
@@ -453,6 +611,8 @@ def select_edition(snapshot: Mapping[str, Any], aired: Iterable[Mapping[str, Any
             "daily": bool(snapshot.get("daily")),
             "hot_topics": len(snapshot.get("hot_topics") or []),
             "stories": len(snapshot.get("stories") or {}),
+            "searches": len(snapshot.get("searches") or {}),
+            "related_stories": len(snapshot.get("related_stories") or {}),
         },
         "errors": list(snapshot.get("errors") or []),
     }

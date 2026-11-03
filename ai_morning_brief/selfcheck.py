@@ -74,11 +74,13 @@ def run(run_dir: Path, video: Path, probe: Mapping[str, Any], timeline: Mapping[
     hook = next((s for s in scenes if s["kind"] == "hook"), None)
     hook_len = (hook["end"] - hook["start"]) if hook else 0
     check("hook_length", bool(hook) and hook_len <= C.V6_HOOK_MAX_SECONDS + 0.5, f"开头钩子 {hook_len:.1f}s")
-    speech = sum(float(u["duration"]) for u in timeline.get("units") or [])
-    covered = sum(float(c["end"]) - float(c["start"]) for c in timeline.get("captions") or [])
-    check("caption_coverage", speech > 0 and covered / speech >= 0.9, f"字幕覆盖 {covered / max(speech, 0.01):.0%} 的语音时长")
+    # The hook is shown in large type instead of a caption, so coverage counts the captioned units only.
+    speech = sum(float(u["duration"]) for u in timeline.get("units") or [] if u.get("caption", True) is not False)
+    covered = sum(float(c["end"]) - float(c["start"]) for c in timeline.get("captions") or [] if c.get("onscreen", True))
+    check("caption_coverage", speech > 0 and covered / speech >= 0.9, f"字幕覆盖 {covered / max(speech, 0.01):.0%} 的语音时长（钩子页用大字代替字幕）")
     if layout is not None:
-        check("layout", layout.get("status") == "done" and not layout.get("overflow"), f'预排版 {layout.get("status")}，溢出 {layout.get("overflow") or []}')
+        check("layout", layout.get("status") == "done" and not layout.get("overflow") and not layout.get("caption_overflow"),
+              f'预排版 {layout.get("status")}，溢出 {layout.get("overflow") or []}，超过两行的字幕 {layout.get("caption_overflow") or []}')
     if mix is not None:
         check("mix", mix.get("status") == "pass", f'{(mix.get("final") or {}).get("lufs")} LUFS，说话时音乐低于人声 {mix.get("music_under_voice_while_speaking_db")} dB')
     frames: list[tuple[str, Path]] = []

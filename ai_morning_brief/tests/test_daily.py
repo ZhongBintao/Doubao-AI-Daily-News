@@ -6,18 +6,25 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from ai_morning_brief import config as C
-from ai_morning_brief import daily, director, newsroom, publish, render, timeline
+from ai_morning_brief import daily, director, material, newsroom, publish, render, timeline
 from ai_morning_brief.aihot_v2 import AIHotV2Client
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "aihot_v2"
+LIVE_SNAPSHOT = FIXTURES / "snapshot_2026-11-03_live.json"   # a real enriched live edition (stories, searches, related)
+LIVE_PLAN = Path(__file__).resolve().parents[2] / "docs" / "handoff" / "2026-11-03-director_plan.json"
 RUN_DATE = date(2026, 10, 30)
 LATER = datetime(2026, 11, 3, 9, 0, tzinfo=timezone.utc)
 
 
 def fixture_selection():
     client = AIHotV2Client(fixture_dir=FIXTURES)
-    snapshot = newsroom.gather(client, RUN_DATE, now=LATER)
+    snapshot = newsroom.enrich(client, newsroom.gather(client, RUN_DATE, now=LATER))
     return snapshot, newsroom.select_edition(snapshot, [], RUN_DATE)
+
+
+def live_selection():
+    snapshot = json.loads(LIVE_SNAPSHOT.read_text(encoding="utf-8"))
+    return snapshot, newsroom.select_edition(snapshot, [], date(2026, 11, 3))
 
 
 class NewsroomTests(unittest.TestCase):
@@ -40,7 +47,9 @@ class NewsroomTests(unittest.TestCase):
         self.assertEqual(selection["sources_used"]["selected_items"], 21)
         self.assertTrue(selection["sources_used"]["daily"])
         self.assertGreaterEqual(len(selection["recommended"]["headlines"]), 1)
-        self.assertLessEqual(len(selection["recommended"]["headlines"]) + len(selection["recommended"]["flashes"]), C.RUNDOWN_MAX_STORIES)
+        self.assertLessEqual(len(selection["recommended"]["headlines"]), C.RUNDOWN_MAX_HEADLINES)
+        self.assertLessEqual(len(selection["recommended"]["flashes"]), C.RUNDOWN_MAX_FLASHES)
+        self.assertLessEqual(selection["estimated_seconds"], C.RUNDOWN_MAX_SECONDS)
         lead = selection["pool"][0]["lead"]
         self.assertTrue(lead["signals"]["daily_lead"], "the daily lead model launch should rank first")
         heats = [c["heat"] for c in selection["pool"]]
@@ -116,12 +125,27 @@ class DirectorTests(unittest.TestCase):
         self.assertTrue(all(u["spoken_text"] for u in final["units"]))
         self.assertNotIn("【", "".join(u["display_text"] for u in final["units"]))
 
-    def test_examples_respect_budgets(self):
+    def test_examples_respect_budgets_and_cite_only_their_excerpt(self):
         examples = director.load_examples()
-        self.assertGreaterEqual(len(examples), 4)
+        self.assertGreaterEqual(len([e for e in examples if e["kind"] == "headline"]), 4)
+        self.assertTrue(any(e["kind"] == "flash" for e in examples))
+
+        def item(item_id, example):
+            facts = [{"kind": "摘要", "source": "", "date": "", "text": t} for t in example["material_excerpt"]]
+            pack = {"facts": facts, "background": [], "angle_hint": "", "fact_chars": example["material_chars"], "background_chars": 0,
+                    "source_count": 0, "depth": example["material_depth"]}
+            return {"lead": {"item_id": item_id, "title": example["story"]["title"], "summary": ""}, "member_titles": [], "pack": pack}
+
+        head = next(e for e in examples if e["kind"] == "headline")
         for example in examples:
-            selection = {"pool": [{"lead": {"item_id": "x", "title": example["material_excerpt"], "summary": json.dumps(example, ensure_ascii=False)}, "member_titles": []}]}
-            plan = {"version": C.V6_VERSION, "picks": {"headlines": ["x"], "flashes": []}, "hook": example["hook"], "stories": [dict(example["story"], item_id="x")]}
+            if example["kind"] == "headline":
+                selection = {"pool": [item("x", example)]}
+                plan = {"version": director.PLAN_VERSION, "picks": {"headlines": ["x"], "flashes": []}, "hook": example["hook"],
+                        "stories": [dict(example["story"], item_id="x")]}
+            else:
+                selection = {"pool": [item("h", head), item("x", example)]}
+                plan = {"version": director.PLAN_VERSION, "picks": {"headlines": ["h"], "flashes": ["x"]}, "hook": head["hook"],
+                        "stories": [dict(head["story"], item_id="h"), dict(example["story"], item_id="x")]}
             self.assertEqual(director.validate_plan(plan, selection), [], example["hook_style"])
 
     def test_task_contains_steps_pool_and_examples(self):
@@ -164,7 +188,10 @@ class RenderMarkupTests(unittest.TestCase):
         self.assertIn("<em>0.016%</em>", markup)
         self.assertIn("&lt;OpenAI&gt;", markup)
         self.assertIn("a&amp;b", markup)
-        self.assertIn("头条 1/3", markup)
+        header = render.header_markup([scene], RUN_DATE)
+        self.assertIn("头条 1/3", header)
+        self.assertIn('data-for="hook"', header)
+        self.assertNotIn("header", markup, "the header lives in one persistent layer, not inside each scene")
 
     def test_story_cards_carry_index_and_highlight(self):
         scene = {"scene_id": "story-01", "kind": "story", "category": "ai-models", "subject": "X", "title": "T", "section": "模型发布",
@@ -172,6 +199,21 @@ class RenderMarkupTests(unittest.TestCase):
         markup = render.scene_markup(scene, RUN_DATE, {})
         self.assertIn('data-card="1"', markup)
         self.assertIn('<span class="hl">48.1</span>', markup)
+        self.assertIn('class="more"', markup)
+
+    def test_card_icons_follow_labels_and_flash_has_two_cards(self):
+        icons = {render.icon_for(label) for label in C.CARD_LABELS}
+        self.assertEqual(len(icons), len(C.CARD_LABELS), "every card label has its own icon")
+        scene = {"scene_id": "story-02", "kind": "flash", "category": "industry", "subject": "OpenAI", "title": "T", "section": "行业动态",
+                 "point": "发生了 【1】 件事", "why": "所以呢", "progress": {"role": "快讯", "index": 2, "total": 2}}
+        markup = render.scene_markup(scene, RUN_DATE, {})
+        self.assertIn('data-card="2"', markup)
+        self.assertIn("为什么值得关注", markup)
+
+    def test_logo_chip_adds_name_only_for_symbol_logos(self):
+        scene = {"scene_id": "s", "subject": "Grok"}
+        self.assertIn('class="name"', render._subject_chip(scene, {"s": {"src": "a.png", "wide": False}}))
+        self.assertNotIn('class="name"', render._subject_chip(scene, {"s": {"src": "a.png", "wide": True}}))
 
 
 class PublishTests(unittest.TestCase):
@@ -233,10 +275,160 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(manifest["provider"], "doubao")
             self.assertIn("audio_to_audio_plus", json.dumps(manifest, ensure_ascii=False))
 
+    def test_rebuilt_manifest_drops_audio_of_changed_sentences(self):
+        from ai_morning_brief import voice
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            final = {"units": [{"unit_id": "u01", "scene_id": "hook", "spoken_text": "旧句子。", "display_text": "旧句子。"},
+                               {"unit_id": "u02", "scene_id": "outro", "spoken_text": "不变。", "display_text": "不变。"}]}
+            manifest = voice.build_manifest(run_dir, final, "doubao")
+            for unit in manifest["units"]:
+                Path(unit["output_path"]).parent.mkdir(parents=True, exist_ok=True)
+                Path(unit["output_path"]).write_bytes(b"audio")
+            final["units"][0]["spoken_text"] = "新句子。"
+            manifest = voice.build_manifest(run_dir, final, "doubao")
+            self.assertEqual(voice.missing_units(manifest), ["u01"])
+
     def test_status_and_check_plan_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(daily.main(["--date", RUN_DATE.isoformat(), "--output-root", tmp, "--status"]), 0)
             self.assertEqual(daily.main(["--date", RUN_DATE.isoformat(), "--output-root", tmp, "--check-plan"]), 1)
+
+
+class MaterialPackTests(unittest.TestCase):
+    """Material packs use AIHOT data only and decide how deep each story can go."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.snapshot, cls.selection = live_selection()
+
+    def test_live_packs_gather_multi_source_aihot_text(self):
+        top = self.selection["pool"][0]
+        kinds = {f["kind"] for f in top["pack"]["facts"]}
+        self.assertIn("AIHOT 综述", kinds)
+        self.assertIn("来源报道", kinds)
+        self.assertGreaterEqual(top["pack"]["fact_chars"], C.PACK_DEPTH_RICH)
+        self.assertEqual(top["budget"]["depth"], "rich")
+        for cluster in self.selection["pool"]:
+            self.assertNotIn("original", json.dumps(cluster["pack"], ensure_ascii=False), "original article links are never part of a pack")
+
+    def test_one_storyline_is_merged_into_one_event(self):
+        anthropic = [c for c in self.selection["pool"] if "Anthropic" in c["lead"]["title"] and ("S-1" in " ".join(c["member_titles"]) or "$895" in c["lead"]["title"])]
+        self.assertEqual(len(anthropic), 1)
+        self.assertGreaterEqual(len(anthropic[0]["member_ids"]), 3)
+
+    def test_relation_uses_containment_not_shared_product_names(self):
+        lead = "马斯克承认Grok Bot成本高于收入并下调限额"
+        text = lead + " 马斯克在 X 平台回应称，周末部分用户 Grok Bot 每周额度被用满并非故障，原因是服务成本相对于收入而言高到难以为继，并已下调用量限制。"
+        same = {"title": "Elon Musk 以成本过高为由下调 Grok Bot 用量限制", "summary": "马斯克在 X 上称 Grok Bot 服务成本相对于收入高到难以为继，已下调用量限制，部分用户每周额度被用满。"}
+        noise = {"title": "Grok Bot 新功能一览", "summary": "购物卡片、商品页面、订单跟踪、支付、自定义模式、团队 Bot 登录与设置、分享与查找团队 Bot 等功能演示。"}
+        self.assertEqual(material.relation(lead, text, same), "same")
+        self.assertEqual(material.relation(lead, text, noise), "")
+
+    def test_search_queries_use_subject_and_key_term(self):
+        self.assertEqual(material.search_queries("OpenAI 推出 Grid Protectors 计划")[0], "OpenAI Grid")
+        self.assertEqual(material.search_queries("没有任何主体的标题"), [])
+
+    def test_rundown_count_follows_content_and_fits_three_minutes(self):
+        rec = self.selection["recommended"]
+        self.assertGreaterEqual(len(rec["headlines"]), 2)
+        self.assertLessEqual(len(rec["headlines"]), C.RUNDOWN_MAX_HEADLINES)
+        self.assertLessEqual(len(rec["flashes"]), C.RUNDOWN_MAX_FLASHES)
+        self.assertLessEqual(self.selection["estimated_seconds"], C.RUNDOWN_MAX_SECONDS)
+        pool = {c["lead"]["item_id"]: c for c in self.selection["pool"]}
+        self.assertTrue(all(pool[i]["budget"]["can_headline"] for i in rec["headlines"]))
+
+    def test_heavy_but_thin_event_becomes_a_flash(self):
+        def cluster(key, heat, depth):
+            k = newsroom.EventCluster(key=key, lead=newsroom.Candidate(item_id=key, title=f"标题 {key}", heat=heat), members=[], heat=heat)
+            k.pack = {"depth": depth, "fact_chars": 900 if depth == "rich" else 100}
+            return k
+        rundown = newsroom.plan_rundown([cluster("a", 95, "rich"), cluster("b", 92, "thin"), cluster("c", 90, "rich")])
+        self.assertEqual([k.key for k in rundown["headlines"]], ["a", "c"])
+        self.assertEqual([k.key for k in rundown["flashes"]], ["b"])
+
+    def test_three_minute_cap_drops_weakest_flashes_first(self):
+        clusters = []
+        for i in range(10):
+            k = newsroom.EventCluster(key=f"k{i}", lead=newsroom.Candidate(item_id=f"k{i}", title=f"T{i}", heat=100 - i), members=[], heat=100 - i)
+            k.pack = {"depth": "rich", "fact_chars": 2000}
+            clusters.append(k)
+        rundown = newsroom.plan_rundown(clusters)
+        self.assertEqual(len(rundown["headlines"]), C.RUNDOWN_MAX_HEADLINES)
+        self.assertLessEqual(rundown["estimated_seconds"], C.RUNDOWN_MAX_SECONDS)
+        self.assertTrue(rundown["dropped"])
+        self.assertGreater(min(k.heat for k in rundown["flashes"]), max(d["heat"] for d in rundown["dropped"]) - 0.01)
+
+
+class DepthContractTests(unittest.TestCase):
+    """The v6.1 contract asks for depth where the material allows it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.snapshot, cls.selection = live_selection()
+        cls.plan = json.loads(LIVE_PLAN.read_text(encoding="utf-8"))
+
+    def fresh(self):
+        return json.loads(json.dumps(self.plan, ensure_ascii=False))
+
+    def test_reference_agent_plan_and_fallback_are_valid(self):
+        self.assertEqual(director.validate_plan(self.plan, self.selection), [])
+        fallback = director.fallback_plan(self.selection)
+        self.assertEqual(director.validate_plan(fallback, self.selection), [])
+        self.assertGreaterEqual(len(fallback["stories"]), 4, "a rich day gets several stories even without an agent")
+
+    def test_card_labels_are_a_fixed_choice(self):
+        plan = self.fresh()
+        plan["stories"][0]["cards"][1]["label"] = "规模"
+        self.assertTrue(any("只能从这些标签里选" in e for e in director.validate_plan(plan, self.selection)))
+
+    def test_rich_story_needs_a_depth_card(self):
+        plan = self.fresh()
+        for card in plan["stories"][0]["cards"]:
+            if card["label"] in C.CARD_DEPTH_LABELS:
+                card["label"] = "下一步" if card["label"] != "下一步" else "怎么做到的"
+        errors = director.validate_plan(plan, self.selection)
+        self.assertTrue(any("至少要有一张" in e for e in errors), errors)
+
+    def test_card_body_must_not_restate_headline(self):
+        plan = self.fresh()
+        plan["stories"][0]["cards"][0] = {"label": "发生了什么", "headline": "拟以 ANT 登陆纳斯达克", "body": "拟以 ANT 登陆纳斯达克。"}
+        self.assertTrue(any("几乎是同一句话" in e for e in director.validate_plan(plan, self.selection)))
+
+    def test_thin_narration_on_rich_material_is_rejected(self):
+        plan = self.fresh()
+        story = plan["stories"][0]
+        story["narration"] = [{"text": "Anthropic 递交了 S-1。", "card": i + 1} for i in range(len(story["cards"]))]
+        self.assertTrue(any("这条素材足够讲到" in e for e in director.validate_plan(plan, self.selection)))
+
+    def test_flash_needs_a_so_what(self):
+        plan = self.fresh()
+        flash = next(s for s in plan["stories"] if s["role"] == "flash")
+        flash.pop("why")
+        flash["narration"] = flash["narration"][:1]
+        errors = director.validate_plan(plan, self.selection)
+        self.assertTrue(any(".why：不能为空" in e for e in errors), errors)
+        self.assertTrue(any("句旁白" in e for e in errors), errors)
+
+    def test_caveat_in_material_must_be_kept(self):
+        plan = self.fresh()
+        mit = plan["stories"][1]
+        mit["cards"] = [c for c in mit["cards"] if c["label"] != "还没确定"]
+        mit["narration"] = [n for n in mit["narration"] if n["card"] <= len(mit["cards"])]
+        errors = director.validate_plan(plan, self.selection)
+        self.assertTrue(any("尚未验证" in e for e in errors), errors)
+
+    def test_finalize_hides_hook_caption_and_builds_recap(self):
+        final = director.finalize(self.plan, self.selection, source="agent")
+        self.assertIs(final["units"][0]["caption"], False)
+        outro = final["scenes"][-1]
+        self.assertEqual(len(outro["recap"]), len(self.plan["stories"]))
+        flash_units = [u for u in final["units"] if u["scene_id"] == "story-04"]
+        self.assertEqual([u["card"] for u in flash_units], [1, 2])
+
+    def test_caption_text_drops_trailing_punctuation(self):
+        self.assertEqual(timeline.caption_text("据《纽约时报》报道，"), "据《纽约时报》报道")
+        self.assertEqual(timeline.caption_text("周末项目 HackerTube（"), "周末项目 HackerTube")
 
 
 if __name__ == "__main__":

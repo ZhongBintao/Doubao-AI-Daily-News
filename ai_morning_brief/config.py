@@ -110,41 +110,63 @@ HEAT_AIRED_PENALTY = 40          # an event aired in the recent window drops out
 HEAT_HEAVY_THRESHOLD = 88        # "重磅"
 HEAT_FLASH_THRESHOLD = 76        # good enough for a 快讯
 AIRED_LOOKBACK_DAYS = 3
-CANDIDATE_POOL_SIZE = 8          # what the writer model may choose from
+CANDIDATE_POOL_SIZE = 12         # what the writer model may choose from
 
-# Rundown: 1 headline (2 when two heavy stories) + flashes, max 4 stories.
-RUNDOWN_MAX_STORIES = 4
-RUNDOWN_MAX_HEADLINES = 2
-RUNDOWN_DEFAULT_FLASHES = 3
+# Material pack: extra AIHOT-only coverage gathered for the strongest events.
+# Only aihot.news endpoints are read; original article links are never opened.
+ENRICH_CLUSTERS = 12             # events that get a keyword search for more AIHOT coverage
+ENRICH_RELATED_EVENTS = 4        # events whose AIHOT "related stories" are fetched as background
+ENRICH_RELATED_PER_EVENT = 2
+SEARCH_LIMIT = 20
+PACK_MAX_FACTS = 14              # fact paragraphs per event (summary, digest, per-source reports, coverage)
+PACK_MAX_FACT_CHARS = 3600
+PACK_MAX_BACKGROUND = 4
+PACK_DEPTH_RICH = 700            # fact characters for a "rich" pack
+PACK_DEPTH_MEDIUM = 300
+
+# Rundown: the day's content decides the count. Heavy events with enough
+# material become headlines (max 3), the rest above the flash line become
+# flashes (max 5); the estimated length is capped at 3 minutes.
+RUNDOWN_MAX_HEADLINES = 3
+RUNDOWN_MAX_FLASHES = 5
 RUNDOWN_QUIET_FLASHES = 2
+RUNDOWN_MAX_SECONDS = 180.0
+SPEECH_CHARS_PER_SECOND = 5.5      # visible units/s (English letters count one each); edge-tts measures ~6.5, a cloned voice is slower
 
-# Writing budgets (visible characters; ~4.7 chars/s spoken).
-BUDGET_HOOK_MAX = 28
+# Writing budgets (visible units: a Han character or one English letter/digit). Story budgets
+# (narration min/max, card count) scale with the event's material depth.
+BUDGET_HOOK_MAX = 24             # spoken within the 4.5 s hook gate
 BUDGET_KEYFACT_MAX = 60
 BUDGET_TITLE_MAX = 32
 BUDGET_CARD_LABEL_MAX = 6
 BUDGET_CARD_HEADLINE_MAX = 16
-BUDGET_CARD_BODY_MAX = 48
+BUDGET_CARD_BODY_MAX = 60
 BUDGET_SENTENCE_MAX = 42
-BUDGET_HEADLINE_NARRATION_MAX = 170
-BUDGET_FLASH_POINT_MAX = 56
-BUDGET_FLASH_NARRATION_MAX = 70
-BUDGET_TOTAL_NARRATION_MAX = 360
-HEADLINE_CARDS_MIN = 2
-HEADLINE_CARDS_MAX = 5
+BUDGET_FLASH_POINT_MAX = 60
+BUDGET_FLASH_WHY_MAX = 60
+BUDGET_TOTAL_NARRATION_MAX = 900   # ~3 minutes at SPEECH_CHARS_PER_SECOND incl. pauses, hook and outro
+STORY_BUDGETS = {
+    # depth: headline narration (min, max), headline cards (min, max), flash narration (min, max), flash sentences (min, max)
+    "rich": {"headline": (150, 300), "cards": (3, 6), "flash": (45, 110), "flash_sentences": (2, 3)},
+    "medium": {"headline": (100, 220), "cards": (3, 5), "flash": (40, 100), "flash_sentences": (2, 3)},
+    "thin": {"headline": (60, 140), "cards": (2, 4), "flash": (25, 80), "flash_sentences": (1, 3)},
+}
+BUDGET_MIN_SHARE_OF_MATERIAL = 0.4   # never demand more narration than this share of the material
+CARD_LABELS = ("发生了什么", "关键数字", "怎么做到的", "各方说法", "背景", "为什么重要", "对你的影响", "还没确定", "下一步")
+CARD_DEPTH_LABELS = ("各方说法", "背景", "为什么重要", "对你的影响")
 CARDS_PER_PAGE = 3
 
 # Video
 V6_WIDTH = 1080
 V6_HEIGHT = 1920
 V6_FPS = 30
-V6_MAX_DURATION_SECONDS = 100.0
+V6_MAX_DURATION_SECONDS = 180.0
 V6_HOOK_MAX_SECONDS = 4.0
 PAUSE_AFTER_HOOK = 0.30
 PAUSE_BETWEEN_SENTENCES = 0.14
 PAUSE_BETWEEN_STORIES = 0.40
-OUTRO_TEXT = "关注我，每天一分钟看懂 AI。"
-OUTRO_MIN_SECONDS = 2.6
+OUTRO_TEXT = "关注我，每天看懂 AI 大事。"
+OUTRO_MIN_SECONDS = 4.5          # long enough to read the recap list
 
 # Voice
 TTS_PROVIDERS = ("doubao", "edge")

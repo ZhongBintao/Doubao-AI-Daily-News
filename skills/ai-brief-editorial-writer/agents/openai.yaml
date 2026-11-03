@@ -1,7 +1,7 @@
 interface:
   display_name: "AI早报导演稿"
-  short_description: "从候选池选新闻，按预算填写 v6 钩子、卡片与逐句旁白"
+  short_description: "从候选池选新闻，按素材包与浮动预算填写 v6 钩子、标签卡片与逐句旁白"
   brand_color: "#C46F4A"
-  default_prompt: "Use $ai-brief-editorial-writer to write the v6 director_plan.json for AI每日早报: pick stories from the pool in director_task.json, fill the hook, cards and per-sentence narration within budgets by following the bundled examples, then run the check command."
+  default_prompt: "Use $ai-brief-editorial-writer to write the v6 director_plan.json for AI每日早报: pick stories from the pool in director_task.json, fill the hook, labelled cards and per-sentence narration from each event's AIHOT material pack within its budget, following the bundled examples, then run the check command."
 policy:
   allow_implicit_invocation: true

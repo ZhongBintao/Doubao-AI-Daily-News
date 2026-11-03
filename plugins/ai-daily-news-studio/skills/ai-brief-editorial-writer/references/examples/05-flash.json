@@ -1,0 +1,34 @@
+{
+ "kind": "flash",
+ "hook_style": "快讯：事实 + 所以呢",
+ "when_to_use": "每条快讯都用这个结构：point 讲发生了什么，why 讲反差、影响或各方反应",
+ "what_to_learn": "第 1 句讲 point（card=1），后面讲 why（card=2）；why 不是 point 换个说法。",
+ "material_depth": "medium",
+ "material_chars": 390,
+ "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
+ "material_excerpt": [
+  "[摘要 · OpenAI] OpenAI 推出 Grid Protectors 计划，与电力公司、监管机构和政策制定者合作，让未来算力校园在电网紧张时降低用电需求，首站为 Effingham County 校园。",
+  "[同事件报道 · The Verge] OpenAI 宣布将在佐治亚州 Effingham County 的数据中心试点 Grid Protectors Program，承诺在极端天气或紧急情况下释放最多 1000 MW 电力，约可供 70 万户家庭使用空调。"
+ ],
+ "story": {
+  "role": "flash",
+  "subject": "OpenAI",
+  "title": "OpenAI 推出 Grid Protectors 计划",
+  "point": "OpenAI 在佐治亚州试点 Grid Protectors，电网紧张时数据中心主动降低用电。",
+  "why": "极端天气时最多释放 【1000 MW】 电力，据 The Verge 约够 70 万户家庭用空调。",
+  "narration": [
+   {
+    "text": "OpenAI 推出 Grid Protectors 计划，首站在佐治亚州。",
+    "card": 1
+   },
+   {
+    "text": "电网吃紧时，数据中心主动少用电，最多释放 1000 MW。",
+    "card": 2
+   },
+   {
+    "text": "据 The Verge，这大约够 70 万户家庭开空调。",
+    "card": 2
+   }
+  ]
+ }
+}
