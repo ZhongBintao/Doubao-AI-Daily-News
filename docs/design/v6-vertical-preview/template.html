@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@500;700;800;900&display=block">
+<style>
+/* AI每日早报 · vertical v6 sample — evolves the original v5 editorial template:
+   same paper/terracotta/teal palette, white rounded cards, icons and dark caption bar. */
+:root {
+  --paper: #f7f4ee; --card: #fffefa; --ink: #20282b; --muted: #6d7371; --line: #dedbd2;
+  --terracotta: #cf704a; --terracotta-dark: #a75a3b; --teal: #3f7376; --amber: #9a6f17; --red: #b84a3e;
+  --accent: var(--terracotta); --accent-dark: var(--terracotta-dark); --accent-soft: rgba(207,112,74,.12);
+  --font: "Noto Sans SC", sans-serif;
+  --safe-l: 64px; --safe-r: 150px;   /* right rail of TikTok / 小红书 */
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #777; font-family: var(--font); }
+.frame { position: relative; width: 1080px; height: 1920px; overflow: hidden; background: var(--paper); color: var(--ink); margin-bottom: 40px; }
+.frame::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image: radial-gradient(circle at 88% 12%, rgba(207,112,74,.16), rgba(207,112,74,0) 34%),
+    linear-gradient(rgba(32,40,43,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(32,40,43,.04) 1px, transparent 1px);
+  background-size: auto, 72px 72px, 72px 72px; }
+/* one accent per story, chosen from its category (no rainbow rotation) */
+.cat-ai-models { --accent: var(--terracotta); --accent-dark: var(--terracotta-dark); --accent-soft: rgba(207,112,74,.12); }
+.cat-ai-products { --accent: var(--terracotta); --accent-dark: var(--terracotta-dark); --accent-soft: rgba(207,112,74,.12); }
+.cat-industry { --accent: var(--teal); --accent-dark: #2d5759; --accent-soft: rgba(63,115,118,.12); }
+.cat-paper { --accent: var(--amber); --accent-dark: #7a5710; --accent-soft: rgba(154,111,23,.12); }
+.cat-tip, .cat-opinion { --accent: var(--red); --accent-dark: #8f3830; --accent-soft: rgba(184,74,62,.12); }
+.orbit { position: absolute; width: 760px; height: 760px; right: -260px; top: 140px; border: 1px solid rgba(63,115,118,.18); border-radius: 50%; pointer-events: none; }
+.orbit::before, .orbit::after { content: ""; position: absolute; inset: 70px; border: 1px solid rgba(207,112,74,.2); border-radius: 50%; }
+.orbit::after { inset: 180px; border-color: rgba(232,172,59,.22); }
+
+/* header: replaces the 66px top story navigation */
+.header { position: absolute; top: 196px; left: var(--safe-l); right: var(--safe-r); height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.wordmark { display: flex; align-items: center; gap: 14px; font: 900 34px/1 var(--font); color: var(--terracotta); letter-spacing: -.01em; }
+.wordmark .rule { width: 10px; height: 34px; border-radius: 99px; background: var(--terracotta); }
+.wordmark .date { font: 700 26px/1 var(--font); color: var(--muted); letter-spacing: .04em; }
+.progress { display: flex; align-items: center; gap: 14px; font: 800 26px/1 var(--font); color: var(--teal); letter-spacing: .06em; }
+.progress .segs { display: flex; gap: 6px; }
+.progress .segs i { width: 30px; height: 8px; border-radius: 99px; background: rgba(63,115,118,.2); }
+.progress .segs i.on { background: var(--teal); }
+
+.body { position: absolute; left: var(--safe-l); right: var(--safe-r); top: 300px; bottom: 572px; display: flex; flex-direction: column; }
+[data-kind="hook"] .body, [data-kind="flash"] .body { justify-content: center; padding-bottom: 40px; }
+.cards.compact { gap: 16px; margin-top: 26px; }
+.cards.compact .card { padding: 20px 24px 22px; }
+.cards.compact .card h3 { font-size: 35px; margin-bottom: 8px; }
+.cards.compact .card p { font-size: 28px; line-height: 1.42; }
+.page-note { margin-top: 14px; color: var(--muted); font: 700 24px/1 var(--font); letter-spacing: .04em; }
+.kicker-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.kicker { padding: 10px 20px 11px; border-radius: 12px; background: var(--accent); color: #fff; font: 900 30px/1 var(--font); letter-spacing: .08em; }
+.section { color: var(--teal); font: 800 26px/1.2 var(--font); letter-spacing: .08em; }
+.subject { display: inline-flex; align-items: center; height: 72px; padding: 0 22px; border-radius: 18px; border: 1px solid var(--line); background: var(--card); box-shadow: 0 10px 24px rgba(32,40,43,.07); font: 900 34px/1 var(--font); color: var(--ink); letter-spacing: -.01em; }
+.subject img { height: 40px; display: block; }
+.subject.has-logo { padding: 0 24px; }
+
+/* hook scene */
+.hook-title { margin-top: 40px; color: var(--ink); font-weight: 900; line-height: 1.12; letter-spacing: -.02em; }
+.hook-title em { font-style: normal; color: var(--accent); }
+.hook-rule { width: 104px; height: 10px; border-radius: 99px; background: var(--accent); margin: 44px 0 34px; }
+.keyfact { padding: 30px 34px 32px; border: 1px solid var(--line); border-radius: 28px; background: var(--card); box-shadow: 0 18px 36px rgba(32,40,43,.09); }
+.keyfact .label { color: var(--teal); font: 800 26px/1 var(--font); letter-spacing: .06em; margin-bottom: 14px; }
+.keyfact p { font: 600 38px/1.45 var(--font); letter-spacing: -.01em; }
+
+/* story scene */
+.story-title { margin-top: 26px; color: var(--accent); font-weight: 900; line-height: 1.16; letter-spacing: -.03em; }
+.story-meta { margin-top: 24px; display: flex; align-items: center; gap: 16px; }
+.cards { margin-top: 34px; display: flex; flex-direction: column; gap: 22px; }
+.card { display: flex; gap: 22px; align-items: flex-start; padding: 26px 28px 28px; border: 2px solid transparent; border-radius: 26px; background: var(--card); box-shadow: 0 14px 30px rgba(32,40,43,.08); outline: 1px solid var(--line); outline-offset: -1px; transition: none; }
+.card.is-speaking { border-color: var(--accent); outline-color: transparent; box-shadow: 0 22px 44px rgba(32,40,43,.14); transform: translateX(10px); }
+.card.is-done { opacity: .62; }
+.card .icon { flex: 0 0 56px; width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
+.card .icon svg { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.card .copy { min-width: 0; flex: 1; }
+.card .label { color: var(--teal); font: 800 24px/1 var(--font); letter-spacing: .06em; margin-bottom: 10px; }
+.card h3 { color: var(--accent-dark); font: 900 40px/1.18 var(--font); letter-spacing: -.02em; margin-bottom: 10px; }
+.card p { font: 500 31px/1.45 var(--font); letter-spacing: -.01em; overflow-wrap: anywhere; }
+.hl { padding: 0 .14em; border-radius: 8px; color: var(--red); background: #fff0e8; font-weight: 800; }
+
+/* flash scene */
+.flash-card { margin-top: 40px; padding: 36px 36px 40px; border-radius: 30px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 18px 36px rgba(32,40,43,.09); }
+.flash-card .label { color: var(--teal); font: 800 26px/1 var(--font); letter-spacing: .06em; margin-bottom: 16px; }
+.flash-card p { font: 600 38px/1.48 var(--font); }
+
+/* caption: same dark bar as v5, moved above the platform caption area */
+.caption { position: absolute; left: var(--safe-l); right: var(--safe-r); top: 1372px; text-align: center; }
+.caption span { font: 800 46px/1.5 var(--font); color: #fff; background: rgba(32,40,43,.93); padding: 8px 20px; border-radius: 12px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+
+.hook-title, .story-title, .caption, .keyfact p, .flash-card p { text-wrap: balance; }
+.card.is-done { opacity: .7; }
+.w { white-space: nowrap; }
+/* platform occlusion mock (generic shapes) */
+.ui-mock { position: absolute; inset: 0; pointer-events: none; z-index: 100; }
+.ui-mock .rail { position: absolute; right: 28px; bottom: 470px; display: flex; flex-direction: column; gap: 46px; align-items: center; }
+.ui-mock .rail i { display: block; width: 92px; height: 92px; border-radius: 50%; background: rgba(120,120,120,.45); }
+.ui-mock .cap { position: absolute; left: 36px; right: 170px; bottom: 150px; }
+.ui-mock .cap b { display: block; width: 300px; height: 40px; border-radius: 8px; background: rgba(90,90,90,.45); margin-bottom: 18px; }
+.ui-mock .cap s { display: block; height: 30px; border-radius: 8px; background: rgba(90,90,90,.3); margin-bottom: 14px; }
+.ui-mock .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 120px; background: rgba(0,0,0,.45); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="data.js"></script>
+<script>
+const ICONS = {
+  spark: '<svg viewBox="0 0 48 48"><path d="M24 4l3.6 13.2L41 21l-13.4 3.8L24 38l-3.6-13.2L7 21l13.4-3.8L24 4Z"/></svg>',
+  bars: '<svg viewBox="0 0 48 48"><path d="M9 39V25h7v14H9Zm12 0V12h7v27h-7Zm12 0V6h7v33h-7Z"/></svg>',
+  chart: '<svg viewBox="0 0 48 48"><rect x="7" y="7" width="34" height="34" rx="3"/><path d="M14 33v-8M23 33V15M32 33v-13"/></svg>',
+  clock: '<svg viewBox="0 0 48 48"><circle cx="24" cy="25" r="14"/><path d="M24 17v9l6 4M18 7h12"/></svg>',
+  code: '<svg viewBox="0 0 48 48"><path d="m19 14-10 11 10 11M29 14l10 11-10 11"/></svg>',
+  alert: '<svg viewBox="0 0 48 48"><path d="M24 6 44 40H4L24 6Z"/><path d="M24 19v10M24 34v1"/></svg>',
+};
+// Same heuristic idea as v5 materialize._point_icon: derived from text, never authored.
+const iconFor = (t, i) => /待验证|尚无|风险|窃取|攻击|不受影响|抗议/.test(t) ? "alert" : /\d|%|价格|额度|成绩/.test(t) ? "bars" : /研究|论文|方法|做法/.test(t) ? "chart" : /月|日|时间|生效|起/.test(t) ? "clock" : ["spark", "chart", "code"][i % 3];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// 【…】 marks one optional emphasis span — the only markup a writer model must learn.
+const marked = (s, tag) => esc(s).replace(/【(.+?)】/g, `<${tag}>$1</${tag}>`);
+const plain = (s) => String(s ?? "").replace(/[【】]/g, "");
+const subjectChip = (st) => st.logo ? `<span class="subject has-logo"><img src="assets/${esc(st.logo)}" alt="${esc(st.subject)}"></span>` : `<span class="subject">${esc(st.subject)}</span>`;
+const header = (role, idx, total) => `<div class="header"><div class="wordmark"><span class="rule"></span>AI每日早报<span class="date">${esc(DATA.date)}</span></div>
+  <div class="progress">${role} ${idx}/${total}<span class="segs">${Array.from({ length: total }, (_, k) => `<i class="${k < idx ? "on" : ""}"></i>`).join("")}</span></div></div>`;
+const caption = (t) => `<div class="caption"><span>${esc(plain(t))}</span></div>`;
+const uiMock = '<div class="ui-mock"><div class="rail"><i></i><i></i><i></i><i></i></div><div class="cap"><b></b><s></s><s style="width:70%"></s></div><div class="bar"></div></div>';
+
+function hookFrame(st, n, total, withUi) {
+  return `<section class="frame cat-${st.cat}" data-kind="hook"><div class="orbit"></div>${header("头条", n, total)}
+  <div class="body"><div class="kicker-row"><span class="kicker">今日头条</span>${subjectChip(st)}</div>
+  <h1 class="hook-title fit" data-max="118" data-min="76" data-lines="4">${marked(st.hook, "em")}</h1>
+  <div class="hook-rule"></div>
+  <div class="keyfact"><div class="label">发生了什么</div><p>${esc(st.keyfact)}</p></div></div>
+  ${caption(st.hook_spoken || st.hook)}${withUi ? uiMock : ""}</section>`;
+}
+function storyFrame(st, n, total, active) {
+  const cards = st.cards.slice(0, 3).map((c, i) => `<article class="card ${i === active ? "is-speaking" : i < active ? "is-done" : ""}">
+    <div class="icon">${ICONS[iconFor(c.label + c.headline + c.body, i)]}</div>
+    <div class="copy"><div class="label">${esc(c.label)}</div><h3>${esc(c.headline)}</h3><p>${marked(c.body, 'span class="hl"').replace(/<\/span class="hl">/g, "</span>")}</p></div></article>`).join("");
+  return `<section class="frame cat-${st.cat}" data-kind="story">${header("头条", n, total)}
+  <div class="body"><div class="kicker-row"><span class="section">${esc(st.section)}</span></div>
+  <h2 class="story-title fit" data-max="68" data-min="50" data-lines="3">${esc(st.title)}</h2>
+  <div class="story-meta">${subjectChip(st)}</div>
+  <div class="cards">${cards}</div></div>
+  ${caption(st.cards[active].spoken)}</section>`;
+}
+function flashFrame(st, n, total) {
+  return `<section class="frame cat-${st.cat}" data-kind="flash">${header("快讯", n, total)}
+  <div class="body"><div class="kicker-row"><span class="kicker" style="background:var(--teal)">快讯</span><span class="section">${esc(st.section)}</span></div>
+  <h2 class="story-title fit" data-max="76" data-min="54" data-lines="3" style="margin-top:34px">${esc(st.flash_title || st.title)}</h2>
+  <div class="story-meta">${subjectChip(st)}</div>
+  <div class="flash-card"><div class="label">要点</div><p>${esc(st.flash_body)}</p></div></div>
+  ${caption(st.flash_spoken)}</section>`;
+}
+const html = [];
+DATA.stories.forEach((st, i) => {
+  html.push(`<div class="group" data-story="${i}">`);
+  html.push(hookFrame(st, 1, 4, i === 0));
+  html.push(storyFrame(st, 1, 4, 1));
+  html.push(flashFrame(st, 2 + (i % 3), 4));
+  html.push(`</div>`);
+});
+document.getElementById("root").innerHTML = html.join("");
+// Word-aware wrapping for Chinese: lines break between words, never inside a word, number+measure, or an ASCII token.
+const seg = new Intl.Segmenter("zh", { granularity: "word" });
+const ASCII = /^[A-Za-z0-9.\-+%#_/]+$/, NUMERAL = /^([0-9]+(\.[0-9]+)?|[一二三四五六七八九十百千万两几]+)$/, MEASURE = /^[个款家倍条项位名亿万次年月日天层份张]$/;
+const words = (text) => {
+  const out = [];
+  for (const { segment } of seg.segment(text)) {
+    const prev = out[out.length - 1];
+    if (prev && !/\s/.test(segment) && ((ASCII.test(prev) && ASCII.test(segment)) || (NUMERAL.test(prev) && MEASURE.test(segment)))) out[out.length - 1] = prev + segment;
+    else out.push(segment);
+  }
+  return out;
+};
+document.querySelectorAll(".hook-title, .story-title, .keyfact p, .card h3, .card p, .flash-card p").forEach((el) => {
+  const walk = (node) => {
+    [...node.childNodes].forEach((child) => {
+      if (child.nodeType === 3) {
+        const frag = document.createDocumentFragment();
+        for (const segment of words(child.textContent)) {
+          if (/^\s+$/.test(segment)) { frag.appendChild(document.createTextNode(segment)); continue; }
+          const span = document.createElement("span"); span.className = "w"; span.textContent = segment; frag.appendChild(span);
+        }
+        child.replaceWith(frag);
+      } else if (child.nodeType === 1) walk(child);
+    });
+  };
+  walk(el);
+});
+// Generic auto-fit: shrink until the text fits its line budget; never truncate.
+document.fonts.ready.then(() => {
+  document.querySelectorAll(".fit").forEach((el) => {
+    const max = +el.dataset.max, min = +el.dataset.min, lines = +el.dataset.lines;
+    for (let size = max; size >= min; size -= 2) {
+      el.style.fontSize = size + "px";
+      const lh = parseFloat(getComputedStyle(el).lineHeight);
+      if (el.scrollHeight <= lh * lines + 2) break;
+    }
+  });
+  // Card budget: compact first, then paginate (production moves the rest to the next page; never truncate).
+  const fitLog = [];
+  document.querySelectorAll('section[data-kind="story"]').forEach((frame) => {
+    const body = frame.querySelector(".body"), cards = frame.querySelector(".cards");
+    const over = () => cards.getBoundingClientRect().bottom > body.getBoundingClientRect().bottom + 1;
+    let mode = "regular";
+    if (over()) { cards.classList.add("compact"); mode = "compact"; }
+    if (over()) {
+      let hidden = 0;
+      while (over() && cards.querySelectorAll(".card:not([hidden])").length > 1) {
+        const vis = [...cards.querySelectorAll(".card:not([hidden])")]; vis[vis.length - 1].hidden = true; hidden += 1;
+      }
+      cards.insertAdjacentHTML("afterend", '<div class="page-note">下一页还有 ' + hidden + ' 张卡片</div>');
+      mode = "paged:" + hidden;
+    }
+    fitLog.push(mode);
+  });
+  window.__fitLog = fitLog;
+  document.body.dataset.ready = "1";
+});
+</script>
+</body>
+</html>
