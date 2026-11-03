@@ -1,0 +1,20 @@
+{
+  "hook_style": "数字冲击：用一个最惊人的数字开头",
+  "when_to_use": "素材里有一个反差很大的数字（倍数、百分比、金额、参数量）",
+  "material_excerpt": "MIT CSAIL 提出“权重空间编程”，GPT-6 Astra 仅修改 Qwen3.5-0.8B 约 0.016% 权重，MATH-500 成绩从 7.9 升至 48.1，GSM8K 从 13.8 升至 67.1；这些数字来自研究者一方，尚无独立复现。",
+  "hook": {"text": "只改 【0.016%】 的权重，数学成绩涨到 6 倍", "keyfact": "MIT CSAIL 让 GPT-6 Astra 直接改写另一个模型的权重。"},
+  "story": {
+    "role": "headline", "subject": "OpenAI", "title": "MIT 让 GPT-6 Astra 直接改写模型权重",
+    "cards": [
+      {"label": "核心做法", "headline": "无需训练和梯度", "body": "GPT-6 Astra 直接读取并修改 Qwen3.5-0.8B 的权重，只改动约 0.016%。"},
+      {"label": "实测成绩", "headline": "数学成绩涨到 6 倍", "body": "MATH-500 从 7.9 升至 【48.1】，GSM8K 从 13.8 升至 67.1。"},
+      {"label": "仍待验证", "headline": "尚无独立复现", "body": "这些数字来自研究团队，目前没有第三方验证。"}
+    ],
+    "narration": [
+      {"text": "MIT 的团队让 GPT-6 Astra 直接去改另一个模型的权重。", "card": 1},
+      {"text": "整个过程不用训练，也不用梯度下降。", "card": 1},
+      {"text": "MATH-500 成绩从 7.9 涨到了 48.1。", "card": 2},
+      {"text": "不过这些数字还没有第三方验证。", "card": 3}
+    ]
+  }
+}

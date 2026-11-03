@@ -1,0 +1,19 @@
+{
+  "hook_style": "与你有关：点出用户会直接感受到的变化",
+  "when_to_use": "价格、额度、套餐、功能下线等会影响普通用户的变化，素材里没有大数字也能用",
+  "material_excerpt": "从 12 月开始，Plus 和 Pro 用户的 ChatGPT 聊天与 Codex 用量将合并为同一 Token 额度，仅 Instant 聊天不受影响；社区在 GitHub 上提 issue 抗议。",
+  "hook": {"text": "ChatGPT 和 Codex 要【共用一份额度】了", "keyfact": "从 12 月开始，Plus 和 Pro 用户的聊天与 Codex 用量将合并计算。"},
+  "story": {
+    "role": "headline", "subject": "OpenAI", "title": "OpenAI 12 月起合并 ChatGPT 与 Codex 额度",
+    "cards": [
+      {"label": "变化", "headline": "统一 Token 额度", "body": "Plus 和 Pro 用户的 ChatGPT 聊天与 Codex 用量合并为同一额度。"},
+      {"label": "例外", "headline": "Instant 聊天不受影响", "body": "只有 Instant 聊天不计入合并后的额度。"},
+      {"label": "社区反应", "headline": "开发者提 issue 抗议", "body": "社区已经在 GitHub 上提 issue 抗议。"}
+    ],
+    "narration": [
+      {"text": "从 12 月开始，ChatGPT 聊天和 Codex 将共用一份额度。", "card": 1},
+      {"text": "只有 Instant 聊天不受影响。", "card": 2},
+      {"text": "社区已经在 GitHub 上提 issue 抗议。", "card": 3}
+    ]
+  }
+}

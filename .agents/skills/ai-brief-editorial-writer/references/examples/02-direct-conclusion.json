@@ -1,0 +1,20 @@
+{
+  "hook_style": "直接结论：一句话说出发生了什么大事",
+  "when_to_use": "事件本身就足够重磅（上市、收购、重大发布），不需要绕弯",
+  "material_excerpt": "Anthropic 向美国 SEC 提交 S-1 注册声明，计划在纳斯达克全球精选市场以代码 ANT 上市；发行股数与价格区间尚未确定，初步招股书将通过 Goldman Sachs 和 Morgan Stanley 提供。",
+  "hook": {"text": "Anthropic 正式启动 【IPO】，代码 ANT", "keyfact": "Anthropic 已向美国 SEC 提交 S-1，计划在纳斯达克上市。"},
+  "story": {
+    "role": "headline", "subject": "Anthropic", "title": "Anthropic 递交 S-1，拟以 ANT 登陆纳斯达克",
+    "cards": [
+      {"label": "上市地点", "headline": "纳斯达克全球精选市场", "body": "计划以代码 ANT 上市，发行 Class A 普通股。"},
+      {"label": "承销机构", "headline": "高盛与摩根士丹利", "body": "初步招股书将通过 Goldman Sachs 和 Morgan Stanley 提供。"},
+      {"label": "尚未确定", "headline": "股数与价格未定", "body": "发行股数和价格区间尚未确定。"}
+    ],
+    "narration": [
+      {"text": "Anthropic 已经向美国 SEC 递交了 S-1。", "card": 1},
+      {"text": "它计划在纳斯达克以代码 ANT 上市。", "card": 1},
+      {"text": "招股书会通过高盛和摩根士丹利提供。", "card": 2},
+      {"text": "发行股数和价格区间都还没定。", "card": 3}
+    ]
+  }
+}

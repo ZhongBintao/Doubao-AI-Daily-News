@@ -7,9 +7,9 @@
 - `middle-loop.mp3` — 正文循环段，SHA-256 `cfd4b0271e1e64f20696ccf0adffd8387787ef935a4415a7798ee20cee1aecbc`
 - `ending.mp3` — 片尾段，SHA-256 `231bfe7bc13ac3a2fb412cd6868946fb04ba292f4eb8d904ed9581683be298fd`
 
-混音沿用插件的可审计思路：三段素材按视频场景定位，先将每段音乐与人声
-匹配到 `0 ± 0.5 LU`，再用 30 ms attack / 350 ms release 的语音侧链轻压，
-最多衰减 4 dB，避免辅音被遮蔽。最终输出为 48 kHz/16-bit PCM，目标
-`-16 LUFS`、`≤ -1.5 dBTP`，拒绝低于 `-45 dBFS` 的有效音乐或新增削波。
-每次运行都会写出 `artifacts/background-music.json`，记录素材哈希、段落
-位置、实际增益、响度测量和质量门禁结果。
+v6 混音（`ai_morning_brief/audio_mix.py`）：opening 覆盖开头钩子，middle-loop 循环覆盖正文，
+ending 覆盖结尾页，段间 0.8 秒交叉淡化。每段先对齐到人声有效响度下 18 dB，再用人声包络
+（30 ms attack / 350 ms release）侧链额外压低 4 dB；换条时叠加轻微 whoosh；最后两遍 loudnorm
+到 −16 LUFS、真峰值 ≤ −1.5 dBTP。报告写入 `artifacts/mix_report.json`。
+
+这三段素材节奏偏慢，后续可替换为节奏更快、确认可在 TikTok/小红书商用的曲目（保持文件名即可）。

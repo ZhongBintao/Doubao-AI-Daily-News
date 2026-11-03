@@ -8,9 +8,9 @@ PLUGIN = ROOT / "plugins" / "ai-daily-news-studio"
 
 
 class PluginSyncTests(unittest.TestCase):
-    def test_plugin_is_v041_and_project_skill_mirrors_match(self):
+    def test_plugin_is_v6_and_project_skill_mirrors_match(self):
         plugin = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
-        self.assertTrue(plugin["version"].startswith("0.5.1+"))
+        self.assertTrue(plugin["version"].startswith("0.6.0+"))
         pairs = [
             ("skills/ai-brief-editorial-writer/SKILL.md", ".agents/skills/ai-brief-editorial-writer/SKILL.md"),
             ("skills/ai-brief-editorial-writer/references/editorial-contract.md", ".agents/skills/ai-brief-editorial-writer/references/editorial-contract.md"),

@@ -1,0 +1,52 @@
+{
+  "hook_style": "规模反常：用“多少个/多快”说明事情不寻常",
+  "when_to_use": "列表型、汇总型新闻（多家公司、多起事件、多个平台）",
+  "material_excerpt": "Wiz 研究团队梳理 10 月内至少九个 AI 开发者平台披露的安全事件，包括 Fireworks AI、Lightning AI、Railway、Warp、OpenCode 等，多起报告指向凭据窃取和 agent swarm 攻击。",
+  "hook": {
+    "text": "一个月，【九个】 AI 开发平台接连出事",
+    "keyfact": "Wiz 梳理了 10 月内至少九个 AI 开发者平台披露的安全事件。"
+  },
+  "story": {
+    "role": "headline",
+    "subject": "Wiz",
+    "title": "Wiz：10 月九个 AI 开发平台接连出事",
+    "cards": [
+      {
+        "label": "涉及平台",
+        "headline": "Fireworks AI 等平台",
+        "body": "包括 Fireworks AI、Railway、Warp、OpenCode 等平台。"
+      },
+      {
+        "label": "攻击方式",
+        "headline": "凭据窃取与 agent swarm",
+        "body": "多起报告指向凭据窃取和 agent swarm 攻击。"
+      }
+    ],
+    "narration": [
+      {
+        "text": "安全公司 Wiz 统计，10 月至少有九个 AI 开发平台出了安全事件。",
+        "card": 1
+      },
+      {
+        "text": "涉及 Fireworks AI、Railway 等平台。",
+        "card": 1
+      },
+      {
+        "text": "多起事件指向凭据窃取和 agent swarm 攻击。",
+        "card": 2
+      }
+    ]
+  },
+  "flash_example": {
+    "role": "flash",
+    "subject": "Wiz",
+    "title": "Wiz：10 月九个 AI 开发平台出安全事件",
+    "point": "多起报告指向凭据窃取和 agent swarm 攻击。",
+    "narration": [
+      {
+        "text": "Wiz 统计，10 月有九个 AI 开发平台出了安全事件。"
+      }
+    ]
+  },
+  "note": "英文名按字母数计入字数（Fireworks 算 9 字），英文多时要写得更短。"
+}

@@ -6,6 +6,8 @@ metadata:
   version: "0.5.0"
 ---
 
+> **v6 说明**：每日生产入口已改为 `python -m ai_morning_brief.daily`（1080×1920 竖屏，见 `AGENTS.md` 与 `entry-skill/ai-daily-news-studio/SKILL.md`）。本 skill 描述的是旧版 v5 横屏流程，仅用于重放历史版本。
+
 # AI Daily News Studio Workflow
 
 This is the plugin's only recommended top-level entrypoint. It coordinates the

@@ -7,7 +7,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs"
 DEFAULT_OPENMONTAGE_ROOT = REPO_ROOT / "OpenMontage"
-DEFAULT_AIHOT_URL = "https://aihot.virxact.com/api/v1/items"
+DEFAULT_AIHOT_URL = "https://aihot.news/api/v1/items"
 DEFAULT_SOURCE_CONTRACT = "KKKKhazix/khazix-skills@7a5c4934be4106ac740ffdb95280bb81b3f4b83c"
 DEFAULT_AIHOT_SKILL_VERSION = "1.5.4"
 DEFAULT_SHOW_NAME = "AI每日早报"
@@ -80,6 +80,92 @@ SOURCE_VISUAL_CARD_CHARS_PER_SECOND = 10.0
 # value shared by script planning and HTML materialization so the page switch
 # cannot drift from the editorial contract.
 OVERVIEW_PAGE_DURATION_SECONDS = 5.0
+
+
+# ---------------------------------------------------------------------------
+# v6 vertical edition (TikTok / 小红书). Every tunable of the new pipeline
+# lives here so weights and budgets can change without touching logic.
+# ---------------------------------------------------------------------------
+V6_VERSION = "6.0"
+AIHOT_API_BASE = "https://aihot.news/api/v1"
+AIHOT_API_USER_AGENT = "aihot-api/2.0.0 (+https://github.com/ZhongBintao/Doubao-AI-Daily-News)"
+# AIHOT daily reports cover Beijing 08:00 -> 08:00 and are published at 08:00.
+AIHOT_DAILY_CUTOFF_HOUR = 8
+
+# Heat score = AIHOT score + signal bonuses + category adjustment.
+HEAT_DEFAULT_SCORE = 65
+HEAT_DAILY_BONUS = 8
+HEAT_DAILY_LEAD_BONUS = 12
+HEAT_DAILY_FLASH_BONUS = 4
+HEAT_HOT_RANK_BASE = 22          # bonus = max(0, base - step * rank)
+HEAT_HOT_RANK_STEP = 2
+HEAT_STALE_EVENT_PENALTY = 10    # hot event first reported long before the window
+HEAT_STALE_EVENT_HOURS = 48
+HEAT_HOT_SOURCE_BONUS = 2        # per reporting source, capped below
+HEAT_HOT_SOURCE_CAP = 5
+HEAT_CATEGORY_ADJUST = {
+    "ai-models": 6, "ai-products": 3, "industry": 0, "paper": -2, "opinion": -8, "tip": -10, "other": -4,
+}
+HEAT_AIRED_PENALTY = 40          # an event aired in the recent window drops out unless it is still the top story
+HEAT_HEAVY_THRESHOLD = 88        # "重磅"
+HEAT_FLASH_THRESHOLD = 76        # good enough for a 快讯
+AIRED_LOOKBACK_DAYS = 3
+CANDIDATE_POOL_SIZE = 8          # what the writer model may choose from
+
+# Rundown: 1 headline (2 when two heavy stories) + flashes, max 4 stories.
+RUNDOWN_MAX_STORIES = 4
+RUNDOWN_MAX_HEADLINES = 2
+RUNDOWN_DEFAULT_FLASHES = 3
+RUNDOWN_QUIET_FLASHES = 2
+
+# Writing budgets (visible characters; ~4.7 chars/s spoken).
+BUDGET_HOOK_MAX = 28
+BUDGET_KEYFACT_MAX = 60
+BUDGET_TITLE_MAX = 32
+BUDGET_CARD_LABEL_MAX = 6
+BUDGET_CARD_HEADLINE_MAX = 16
+BUDGET_CARD_BODY_MAX = 48
+BUDGET_SENTENCE_MAX = 42
+BUDGET_HEADLINE_NARRATION_MAX = 170
+BUDGET_FLASH_POINT_MAX = 56
+BUDGET_FLASH_NARRATION_MAX = 70
+BUDGET_TOTAL_NARRATION_MAX = 360
+HEADLINE_CARDS_MIN = 2
+HEADLINE_CARDS_MAX = 5
+CARDS_PER_PAGE = 3
+
+# Video
+V6_WIDTH = 1080
+V6_HEIGHT = 1920
+V6_FPS = 30
+V6_MAX_DURATION_SECONDS = 100.0
+V6_HOOK_MAX_SECONDS = 4.0
+PAUSE_AFTER_HOOK = 0.30
+PAUSE_BETWEEN_SENTENCES = 0.14
+PAUSE_BETWEEN_STORIES = 0.40
+OUTRO_TEXT = "关注我，每天一分钟看懂 AI。"
+OUTRO_MIN_SECONDS = 2.6
+
+# Voice
+TTS_PROVIDERS = ("doubao", "edge")
+DEFAULT_TTS_PROVIDER = os.environ.get("AI_DAILY_TTS_PROVIDER", "doubao")
+EDGE_TTS_VOICE = os.environ.get("EDGE_TTS_VOICE", "zh-CN-YunxiNeural")
+EDGE_TTS_RATE = os.environ.get("EDGE_TTS_RATE", "+10%")
+
+# Mix: music sits well under the voice and ducks further while speaking.
+MIX_MUSIC_UNDER_VOICE_DB = 18.0
+MIX_SIDECHAIN_RATIO = 4.0
+MIX_TARGET_LUFS = -16.0
+MIX_TRUE_PEAK = -1.5
+
+# Category -> template accent class and label.
+V6_CATEGORY_LABELS = {
+    "ai-models": "模型发布", "ai-products": "产品动态", "industry": "行业动态",
+    "paper": "论文研究", "tip": "技巧教程", "opinion": "观点", "other": "AI 动态",
+}
+FONT_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf"
+FONT_FILENAME = "NotoSansSC-VF.ttf"
+FONT_CACHE_DIR = REPO_ROOT / ".local" / "fonts"
 
 
 def editorial_dimensions_for_categories(categories: object) -> tuple[str, ...]:

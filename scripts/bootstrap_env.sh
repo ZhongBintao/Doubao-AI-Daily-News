@@ -39,11 +39,12 @@ else
     (cd "$PROJECT_DIR/OpenMontage" && python3 -m venv .venv) || die "venv 重建失败"
   fi
 fi
-info "安装/更新 Python 依赖..."
+info "安装/更新 Python 依赖（v6 只需 numpy / Pillow / edge-tts）..."
 "$PY" -m pip install -q --upgrade pip 2>/dev/null || warn "pip 升级失败，继续"
-"$PY" -m pip install -q -r "$PROJECT_DIR/OpenMontage/requirements.txt" || warn "OpenMontage 依赖安装异常"
-if [ -f "$PROJECT_DIR/ai_morning_brief/requirements.txt" ]; then
-  "$PY" -m pip install -q -r "$PROJECT_DIR/ai_morning_brief/requirements.txt" || warn "早报依赖安装异常"
+"$PY" -m pip install -q -r "$PROJECT_DIR/ai_morning_brief/requirements.txt" || warn "早报依赖安装异常"
+# 旧版横屏流水线（ai_morning_brief.pipeline）才需要 OpenMontage 全量依赖
+if [ "${AI_DAILY_FULL_OPENMONTAGE:-0}" = "1" ]; then
+  "$PY" -m pip install -q -r "$PROJECT_DIR/OpenMontage/requirements.txt" || warn "OpenMontage 依赖安装异常"
 fi
 
 # --- 2. Node.js >= 22（HyperFrames 渲染经 npx 调用，必需）----------------
@@ -89,14 +90,11 @@ fi
 # --- 2b. hyperframes CLI（渲染必需，必须本地常驻）-------------------------
 # 实测（豆包云电脑 2026-09-06）：HyperFramesCompose 的 runtime check 只有 20 秒超时，
 # 依赖 npx 首次拉取必然超时导致 render 阶段失败。预装一次即可常驻。
-if command -v npm >/dev/null 2>&1 && ! command -v hyperframes >/dev/null 2>&1; then
-  info "预装 hyperframes CLI（一次性，约 1-2 分钟）..."
-  npm install -g hyperframes >/dev/null 2>&1 \
-    || npm install --prefix "$LOCAL_DIR/npm" hyperframes >/dev/null 2>&1 \
-    || warn "hyperframes 安装失败，渲染阶段可能超时"
-  if [ -d "$LOCAL_DIR/npm/node_modules/.bin" ]; then
-    export PATH="$LOCAL_DIR/npm/node_modules/.bin:$PATH"
-  fi
+HF_PKG="${HYPERFRAMES_PACKAGE:-hyperframes@0.9.8}"
+if command -v npx >/dev/null 2>&1; then
+  info "预热 $HF_PKG 并确保渲染用 Chrome 已就绪（首次约 1-3 分钟）..."
+  npx --yes "$HF_PKG" --version >/dev/null 2>&1 || warn "$HF_PKG 预热失败，渲染阶段会再次尝试"
+  npx --yes "$HF_PKG" browser ensure >/dev/null 2>&1 || warn "Chrome 下载失败：排版预处理与封面将跳过"
 fi
 
 # --- 3. ffmpeg + ffprobe（混音与质量门禁按 PATH 硬编码调用，必需）--------
@@ -120,6 +118,16 @@ if ! have_ff; then
   fi
 fi
 have_ff || die "ffmpeg/ffprobe 仍不可用，无法继续"
+
+# --- 3b. 中文字体 Noto Sans SC（视频与封面统一字体，OFL 授权）------------
+FONT_DIR="$LOCAL_DIR/fonts"; FONT_FILE="$FONT_DIR/NotoSansSC-VF.ttf"
+mkdir -p "$FONT_DIR"
+if [ ! -s "$FONT_FILE" ] || [ "$(stat -c%s "$FONT_FILE" 2>/dev/null || echo 0)" -lt 1000000 ]; then
+  info "下载 Noto Sans SC 字体（约 17 MB，一次性）..."
+  curl -fsSL "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf" -o "$FONT_FILE" \
+    || curl -fsSL "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf" -o "$FONT_FILE" \
+    || warn "字体下载失败，将回退到系统中文字体"
+fi
 
 # --- 4. .env（仓库只带 .env.example）-------------------------------------
 if [ ! -f "$PROJECT_DIR/.env" ]; then

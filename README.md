@@ -1,118 +1,43 @@
-# AI Daily News Studio Codex Plugin
+# AI每日早报 · AI Daily News（v6 竖屏版）
 
-`AI Daily News Studio`（中文：`AI每日早报`）是一个面向 Codex 的内容生产插件，
-用于把 AIHOT 过去 24 小时的精选资讯，制作成可审计的中文 AI 资讯视频和私有发布整合包。
-24 小时精选为空时会审计回退到最近 7 天的未播精选（最多 3 条）；如果仍无未播
-资讯，则生成不补旧闻的 `no-news` 状态短报。
+每天从 [AIHOT](https://aihot.news) 选出真正的重磅 AI 资讯，自动生成一条 **60–90 秒、1080×1920 的中文竖屏资讯视频**（TikTok / 小红书），附 3:4 与 9:16 封面和两平台发布文案。
 
-## 豆包云电脑自动运行
+- 开头 3 秒钩子：第一帧就是头条主角与一句抓人的话
+- 重磅选题：AIHOT 精选评分 + 日报 + 实时多源热点 + 事件综述 → 重磅分 → 同事件合并 → 已播去重 → 1 条头条 + 最多 3 条快讯
+- 照顾能力较弱的模型：AI 只做“选择题 + 填空题”，有示范案例和逐字段中文报错；每一步都有自动兜底，保证每天出片
+- 逐句配音：豆包语音克隆或 edge-tts；画面、卡片高亮、字幕按句精确对齐
+- 混音：音乐低于人声约 18 dB，说话时自动再压低；−16 LUFS
+- 设计记录：[docs/design/v6-vertical-template.md](docs/design/v6-vertical-template.md)
 
-面向豆包云电脑的每日自动运行入口：
-
-- 入口 skill：`entry-skill/ai-daily-news-studio/SKILL.md`（放进豆包 `.user_skills/` 后被自动发现）
-- 操作手册：`豆包运行手册.md`（8 步流程）
-- 环境自检：`scripts/bootstrap_env.sh`（幂等，自动补装 venv / Node>=22 / ffmpeg+ffprobe）
-- 默认交付：视频 + 三种尺寸封面 + 发布文案整合包
-
-提示词只需一句「生成今天的 AI 每日早报」，仓库地址、环境自检、流程与交付物约定
-全部内置在入口 skill 里。详见 `快速开始.md`。
-
-> 云电脑会定期重置，重置后 `.user_skills` 与项目内 `.local/` 都会丢失，
-> 但自检脚本会在下次运行时自动重建（含重新同步入口 skill）。
-> 已生成的 `outputs/` 不回传仓库，重置即丢失，需要另行保存成片。
-
-## 能做什么
-
-- 从 AIHOT 冻结精选资讯和来源链接。
-- 生成来源绑定的编辑计划、卡片文案、旁白和字幕。
-- 使用 Azure Speech（默认）或明确指定的 Gemini TTS。
-- 完成人声对齐、背景音乐混音、OpenMontage/HyperFrames 渲染和质量门禁。
-- 可选生成 16:9、3:4、9:16 封面及发布文案整合包。
-- 使用 Codex 内置浏览器采集原文视觉素材，并保留来源、哈希和捕获审计信息。
-
-## 安装与使用
-
-本仓库根目录包含 `.codex-plugin/plugin.json`，可通过 Codex 插件管理界面安装。
-安装后可以直接使用插件中的默认任务，例如：
-
-```text
-生成今天的 AI每日早报完整私有发布包。
-```
-
-完整工作流入口是 `ai-daily-news-studio-workflow`。项目运行主入口为：
+## 运行
 
 ```bash
-OpenMontage/.venv/bin/python -m ai_morning_brief.pipeline prepare \
-  --date YYYY-MM-DD \
-  --env-file .env \
-  --source-visual-mode off
+bash scripts/bootstrap_env.sh && source .local/env.sh
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date 2026-10-30            # 运行 / 断点续跑
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date 2026-10-30 --no-agent # 全自动（兜底稿 + edge 配音）
+OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date 2026-10-30 --status
 ```
 
-正式视频运行前，需要先完成编辑计划；生产运行示例：
+豆包云电脑每日自动运行见 [快速开始.md](快速开始.md)、[豆包运行手册.md](豆包运行手册.md) 与入口 skill [entry-skill/ai-daily-news-studio](entry-skill/ai-daily-news-studio/SKILL.md)。项目契约见 [AGENTS.md](AGENTS.md)。
 
-```bash
-OpenMontage/.venv/bin/python -m ai_morning_brief.pipeline run \
-  --date YYYY-MM-DD \
-  --force \
-  --reuse-source \
-  --env-file .env \
-  --speech-provider azure
-```
+## 代码结构（v6）
 
-## 原文截图落盘
+| 模块 | 职责 |
+|---|---|
+| `ai_morning_brief/daily.py` | 10 阶段编排器，断点续跑、Agent 交接、自动兜底 |
+| `aihot_v2.py` | AIHOT 2.0 JSON API 客户端（精选、日报、热点、事件） |
+| `newsroom.py` | 期号窗口、重磅分、同事件聚类、已播记录、节目单 |
+| `director.py` | 导演稿任务、校验器（中文报错）、兜底稿、逐句单元 |
+| `voice.py` | 逐句配音（豆包交接 / edge-tts）、静音裁剪、对齐 |
+| `timeline.py` | 逐句时间轴、场景/卡片事件、字幕切分 |
+| `audio_mix.py` | 音乐分段对齐、侧链闪避、两遍 loudnorm |
+| `render.py` + `template/v6/index.html` | HyperFrames 工作区、Chrome 预排版、渲染与校验 |
+| `selfcheck.py` / `covers.py` / `publish.py` | 成片自检、HTML 封面、发布文案与整合包 |
 
-截图采集固定使用 Codex 内置浏览器，不连接 Chrome，不使用 Terminal、base64 或剪贴板
-传输浏览器图片字节。
+测试：`python3 -m unittest discover -s ai_morning_brief/tests -v`（全部离线）。
 
-当前插件提供隔离的 [`browser_screenshot_capture.mjs`](skills/ai-daily-news-studio-workflow/scripts/browser_screenshot_capture.mjs)：
+旧版 1920×1080 横屏流水线（`python -m ai_morning_brief.pipeline`）仅作历史兼容。
 
-- 直接接收 `tab.screenshot()` 返回的原始 `Uint8Array`。
-- 校验 PNG/JPEG 格式并记录真实尺寸、格式和 SHA-256。
-- 只允许写入显式声明的绝对 `workspaceRoots`。
-- 拒绝路径穿越、符号链接逃逸和覆盖已有文件。
-- 原子写入截图，并生成 `capture.json` 供流水线审计。
-- 不修改既有 `tab.screenshot()` API，也不改变其他浏览器功能。
+## 许可
 
-原文视觉协议见 [`x-screenshot-capture.md`](skills/ai-daily-news-studio-workflow/references/x-screenshot-capture.md)。
-完整自动验收使用：
-
-```bash
-OpenMontage/.venv/bin/python -m ai_morning_brief.pipeline prepare \
-  --date YYYY-MM-DD \
-  --env-file .env \
-  --source-visual-mode auto \
-  --source-visual-min-stories 1
-```
-
-旧的 `unavailable` 截图请求是终态；修复后必须重新 `prepare`，不能重复尝试同一个已终止请求。
-
-## 目录结构
-
-```text
-.codex-plugin/plugin.json                         插件清单
-skills/                                           发布版 Codex skills
-skills/ai-daily-news-studio-workflow/             主工作流 skill
-ai_morning_brief/                                  AIHOT、编辑、音频和渲染代码
-outputs/YYYY-MM-DD/                               冻结快照、审计文件和视频产物
-```
-
-## 测试
-
-截图 helper：
-
-```bash
-node skills/ai-daily-news-studio-workflow/scripts/test_browser_screenshot_capture.mjs
-```
-
-完整离线测试：
-
-```bash
-python3 -m unittest discover -s ai_morning_brief/tests -v
-```
-
-测试不得自动请求 AIHOT、Azure、Gemini 或其他外部服务。不要提交 `.env`、API key、Cookie、
-浏览器 Profile 或授权请求头。
-
-## 版本
-
-当前插件版本：`0.5.1+codex.20260907`
+代码见 [LICENSE](LICENSE)。字体 Noto Sans SC 为 SIL OFL 授权，运行时下载到 `.local/fonts/`。AIHOT 数据与第三方原文版权归原作者，使用须遵守 [AIHOT 使用规则](https://aihot.news/terms)。

@@ -1,5 +1,7 @@
-# Optional provider dependencies for the local video pipeline.
-# OpenMontage already supplies google-genai in its runtime; keep these pins
-# separate from the protected root/PDF requirements file.
-azure-cognitiveservices-speech>=1.40.0
-google-genai>=1.0.0
+# v6 runtime (python -m ai_morning_brief.daily)
+numpy>=1.24
+Pillow>=10.0
+edge-tts>=7.0
+# Legacy v5 providers (python -m ai_morning_brief.pipeline only)
+# azure-cognitiveservices-speech>=1.40.0
+# google-genai>=1.0.0
