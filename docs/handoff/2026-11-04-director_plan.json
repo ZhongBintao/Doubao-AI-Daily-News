@@ -1,0 +1,309 @@
+{
+ "version": "6.2",
+ "writer": {
+  "source": "agent",
+  "note": "2 headlines (Google rich + Apple rich, chosen for a Chinese audience) + 4 flashes; Revolut/DeepSeek (thin) swapped for FlashProve (rich)"
+ },
+ "picks": {
+  "headlines": [
+   "jk7mp3gxpm7orfsalkr0s30rw",
+   "lnc48gxlu5nv0he3mw57lzmc6"
+  ],
+  "flashes": [
+   "ir9nzccipff0uowu3tghi4n3o",
+   "na7x9iqa4x7spmk4ircfbjb0m",
+   "kxvpm36cquem6hg00nbzleoxs",
+   "bfx52184e0ssnqgdq42o8dg36"
+  ]
+ },
+ "hook": {
+  "text": "关掉 AI，学校就得连【搜索】一起关",
+  "keyfact": "Google 宣布 K-12 学生账号的 AI 工具明年起默认关闭，而且只能和 Search 一起开关。"
+ },
+ "stories": [
+  {
+   "item_id": "jk7mp3gxpm7orfsalkr0s30rw",
+   "role": "headline",
+   "subject": "Google",
+   "title_candidates": [
+    {
+     "formula": "与你有关",
+     "text": "孩子用的 Google，明年起 AI 默认关闭"
+    },
+    {
+     "formula": "对立",
+     "text": "想要 Google 搜索，就得连 AI 一起要"
+    },
+    {
+     "formula": "提问悬念",
+     "text": "学校不想要 AI，为什么连搜索也没了？"
+    }
+   ],
+   "title": "孩子用的 Google，明年起 AI 默认关闭",
+   "cards": [
+    {
+     "angle": "发生了什么",
+     "headline": "引导学习进了课堂",
+     "body": "Guided Learning 即日起在 Classroom 全球开放，Search 里的相关功能本月先在美国部分学校试点。"
+    },
+    {
+     "angle": "对你的影响",
+     "headline": "明年起，AI 默认关闭",
+     "body": "K-12 学生账号的 Gemini 等 AI 工具默认关闭，须由学校管理员手动开启。"
+    },
+    {
+     "angle": "为什么重要",
+     "headline": "关 AI，就得连搜索一起关",
+     "body": "管理员不能只关 Gemini、保留 Search；完全限制 AI 的学校，学生将无法使用搜索。"
+    },
+    {
+     "angle": "各方说法",
+     "headline": "AI 和搜索已经分不开",
+     "body": "据 TechCrunch，AI 功能已与搜索深度整合，所以学校若完全限制 AI，学生就用不了 Google Search。"
+    }
+   ],
+   "narration": [
+    {
+     "text": "Google 宣布，把引导学习功能带进 Classroom 和学生版搜索。",
+     "card": 1
+    },
+    {
+     "text": "Classroom 里即日起全球开放，搜索这边本月先在美国部分学校试点。",
+     "card": 1
+    },
+    {
+     "text": "但同时，K-12 学生账号里的 Gemini 等 AI 工具，明年起默认关闭。",
+     "card": 2
+    },
+    {
+     "text": "要用的话，得由学校管理员手动打开。",
+     "card": 2
+    },
+    {
+     "text": "关键在这：管理员不能只关 Gemini、只留搜索。",
+     "card": 3
+    },
+    {
+     "text": "学校如果完全限制 AI，学生连 Google 搜索都用不了。",
+     "card": 3
+    },
+    {
+     "text": "TechCrunch 的解释是，AI 功能已经和搜索深度整合在一起了。",
+     "card": 4
+    }
+   ]
+  },
+  {
+   "item_id": "lnc48gxlu5nv0he3mw57lzmc6",
+   "role": "headline",
+   "subject": "Apple",
+   "title_candidates": [
+    {
+     "formula": "剧透一半",
+     "text": "Apple 智能进中国了，但少了一样东西"
+    },
+    {
+     "formula": "揭秘",
+     "text": "国行 iPhone 的 Siri，背后接上了千问"
+    },
+    {
+     "formula": "与你有关",
+     "text": "国行 iPhone 用户，Apple 智能终于来了"
+    }
+   ],
+   "title": "Apple 智能进中国了，但少了一样东西",
+   "answer_card": 4,
+   "cards": [
+    {
+     "angle": "发生了什么",
+     "headline": "11 月 4 日先开测",
+     "body": "Apple 智能随 iOS 27.3 进入中国：11 月 4 日开放开发者预览版，12 月正式版上线首批核心功能。"
+    },
+    {
+     "angle": "怎么做到的",
+     "headline": "Siri 里调用的是千问",
+     "body": "千问集成到 Siri、写作工具和视觉智能，登录千问账户即可调用，不用跳转独立应用。"
+    },
+    {
+     "angle": "对你的影响",
+     "headline": "开不开，你自己选",
+     "body": "千问可自主选择开通；阿里称请求和回复不用于模型训练，iPhone 15 Pro 及更新机型可用。"
+    },
+    {
+     "angle": "还没确定",
+     "headline": "新版 Siri 暂时没有",
+     "body": "据 The Verge，这次上线不包括新版 Siri AI，中国用户暂时用不了这项功能。"
+    }
+   ],
+   "narration": [
+    {
+     "text": "苹果宣布，Apple 智能随 iOS 27.3 进入中国。",
+     "card": 1
+    },
+    {
+     "text": "11 月 4 日开放开发者预览版，12 月正式版上线首批核心功能。",
+     "card": 1
+    },
+    {
+     "text": "这次的合作方是阿里，千问被接进了 Siri、写作工具和视觉智能。",
+     "card": 2
+    },
+    {
+     "text": "登录千问账户就能在系统里直接用，不用再跳转独立应用。",
+     "card": 2
+    },
+    {
+     "text": "开不开由用户自己选，阿里称请求和回复不会用于模型训练。",
+     "card": 3
+    },
+    {
+     "text": "iPhone 15 Pro 及更新的机型都能用。",
+     "card": 3
+    },
+    {
+     "text": "不过据 The Verge 报道，这次不包括新版 Siri AI，中国用户暂时还用不了。",
+     "card": 4
+    }
+   ]
+  },
+  {
+   "item_id": "ir9nzccipff0uowu3tghi4n3o",
+   "role": "flash",
+   "subject": "AMD",
+   "title_candidates": [
+    {
+     "formula": "剧透一半",
+     "text": "AMD 明年八成销售额，都押在一样东西上"
+    },
+    {
+     "formula": "数字冲击",
+     "text": "AMD 预计明年营收增长超 80%"
+    },
+    {
+     "formula": "直接结论",
+     "text": "AMD 三季度财报：数据中心芯片唱主角"
+    }
+   ],
+   "title": "AMD 明年八成销售额，都押在一样东西上",
+   "answer_card": 2,
+   "point": "AMD 发布三季度财报，预计 2027 年营收增长超 【80%】，高于分析师建模的 77%。",
+   "why": "CEO Lisa Su 称，数据中心芯片将占明年销售额的 80%。",
+   "narration": [
+    {
+     "text": "AMD 发布三季度财报，预计 2027 年营收增长超过 80%，高于分析师预期的 77%。",
+     "card": 1
+    },
+    {
+     "text": "CEO Lisa Su 说，数据中心芯片将占明年销售额的 80%。",
+     "card": 2
+    }
+   ]
+  },
+  {
+   "item_id": "na7x9iqa4x7spmk4ircfbjb0m",
+   "role": "flash",
+   "subject": "OpenAI",
+   "title_candidates": [
+    {
+     "formula": "数字冲击",
+     "text": "ChatGPT 的搜索量，已经是 Google 的两成"
+    },
+    {
+     "formula": "对立",
+     "text": "Google 说不是零和，ChatGPT 搜索量已达它两成"
+    },
+    {
+     "formula": "直接结论",
+     "text": "两个月，ChatGPT 周活从 10 亿涨到 12 亿"
+    }
+   ],
+   "title": "ChatGPT 的搜索量，已经是 Google 的两成",
+   "point": "OpenAI 称，ChatGPT 触发网页搜索的查询量已相当于 Google 搜索量的 【20%】。",
+   "why": "作为参照，Bing 在 2023 年反垄断审判中的份额约 3%；ChatGPT 周活两个月从 10 亿涨到 12 亿。",
+   "narration": [
+    {
+     "text": "OpenAI 说，ChatGPT 的搜索类查询量，已相当于 Google 的 20%。",
+     "card": 1
+    },
+    {
+     "text": "作为参照，Bing 在 2023 年反垄断审判中的份额约 3%。",
+     "card": 2
+    },
+    {
+     "text": "ChatGPT 的周活也在两个月内，从 10 亿涨到了 12 亿。",
+     "card": 2
+    }
+   ]
+  },
+  {
+   "item_id": "kxvpm36cquem6hg00nbzleoxs",
+   "role": "flash",
+   "subject": "Anthropic",
+   "title_candidates": [
+    {
+     "formula": "提问悬念",
+     "text": "你用的 AI，真是它说的那个模型吗？"
+    },
+    {
+     "formula": "揭秘",
+     "text": "Anthropic 开源一套“验货”工具，专查偷换模型"
+    },
+    {
+     "formula": "直接结论",
+     "text": "Anthropic 开源 FlashProve 可验证推理"
+    }
+   ],
+   "title": "你用的 AI，真是它说的那个模型吗？",
+   "answer_card": 1,
+   "point": "Anthropic 开源 FlashProve，用 zkSNARK 证明某条回复确实来自指定模型，而且不泄露权重。",
+   "why": "据 TechCrunch，它可防止实验室偷偷换用更便宜的模型，但暂无部署计划。",
+   "narration": [
+    {
+     "text": "Anthropic 开源 FlashProve，能用密码学证明回复确实来自指定模型。",
+     "card": 1
+    },
+    {
+     "text": "整个过程不需要接触模型权重。",
+     "card": 1
+    },
+    {
+     "text": "TechCrunch 说，它能防止有人偷偷换用更便宜的模型，不过暂时还没有部署计划。",
+     "card": 2
+    }
+   ]
+  },
+  {
+   "item_id": "bfx52184e0ssnqgdq42o8dg36",
+   "role": "flash",
+   "subject": "Mistral AI",
+   "title_candidates": [
+    {
+     "formula": "揭秘",
+     "text": "Mistral Large 4 开放权重，还公开了研发全过程"
+    },
+    {
+     "formula": "反差",
+     "text": "三周前还是预览版，Mistral Large 4 已经更紧凑"
+    },
+    {
+     "formula": "直接结论",
+     "text": "Mistral Large 4 正式开放权重"
+    }
+   ],
+   "title": "Mistral Large 4 开放权重，还公开了研发全过程",
+   "answer_card": 2,
+   "point": "Mistral Large 4 正式开放权重，主打代码智能体与网络安全方向的前沿能力。",
+   "why": "比三周前的 Preview 版本更高效、更紧凑，还附上讲研发过程的技术报告。",
+   "narration": [
+    {
+     "text": "Mistral Large 4 正式开放权重，主打代码智能体和网络安全方向。",
+     "card": 1
+    },
+    {
+     "text": "团队称它比三周前的 Preview 版本更高效、更紧凑，还附上了讲研发过程的技术报告。",
+     "card": 2
+    }
+   ]
+  }
+ ]
+}

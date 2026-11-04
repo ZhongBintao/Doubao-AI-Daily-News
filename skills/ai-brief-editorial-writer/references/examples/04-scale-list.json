@@ -2,7 +2,7 @@
  "kind": "headline",
  "hook_style": "规模反常：用“多少个/多快”说明事情不寻常",
  "when_to_use": "列表型、汇总型新闻（多家公司、多起事件、多个平台）",
- "what_to_learn": "“背景”卡用 background 里的此前报道，说明这不是孤立事件，并写明是此前的事；“各方说法”引用当事人原话的意思。",
+ "what_to_learn": "钩子已经用了“九个”这个数字，标题就换成“提问悬念”，answer_card=2 指向给出答案的卡；“背景”卡用 background 里的此前报道，说明这不是孤立事件。",
  "material_depth": "medium",
  "material_chars": 520,
  "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
@@ -18,26 +18,41 @@
  "story": {
   "role": "headline",
   "subject": "Wiz",
-  "title": "Wiz：九个 AI 开发平台 10 月接连出事",
+  "title_candidates": [
+   {
+    "formula": "提问悬念",
+    "text": "AI 开发平台，为什么接连出事？"
+   },
+   {
+    "formula": "直接结论",
+    "text": "Wiz：九个 AI 开发平台 10 月接连出事"
+   },
+   {
+    "formula": "揭秘",
+    "text": "黑客盯上 AI 开发平台的，是这个"
+   }
+  ],
+  "title": "AI 开发平台，为什么接连出事？",
+  "answer_card": 2,
   "cards": [
    {
-    "label": "发生了什么",
-    "headline": "九个平台接连出事",
+    "angle": "发生了什么",
+    "headline": "Fireworks 也在名单里",
     "body": "10 月内至少九个 AI 开发者平台披露安全事件，包括 Fireworks AI、Railway、Warp 等。"
    },
    {
-    "label": "怎么做到的",
-    "headline": "盯上凭据和智能体",
+    "angle": "怎么做到的",
+    "headline": "黑客盯上的是凭据",
     "body": "多起报告指向凭据窃取、agent swarm 攻击，以及以“蒸馏”为目的的窃取。"
    },
    {
-    "label": "背景",
-    "headline": "智能体已在真实入侵中",
+    "angle": "背景",
+    "headline": "一次攻击瞄准 2,250 个租户",
     "body": "此前 Wiz 汇总的案例里，一次 ConnectWise 供应链攻击尝试攻击超 【2,250】 个租户。"
    },
    {
-    "label": "各方说法",
-    "headline": "手动打补丁跟不上",
+    "angle": "各方说法",
+    "headline": "手动打补丁，已经跟不上",
     "body": "Wiz 的 CTO 认为，AI 改变了漏洞被发现和利用的速度，手动打补丁无法扩展。"
    }
   ],

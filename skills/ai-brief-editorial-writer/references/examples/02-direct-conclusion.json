@@ -2,7 +2,7 @@
  "kind": "headline",
  "hook_style": "直接结论：一句话说出发生了什么大事",
  "when_to_use": "事件本身就足够重磅（上市、收购、重大发布），不需要绕弯",
- "what_to_learn": "同一条故事线的多条报道（招股书、营收、风险提示）合成一条头条讲透；数字放进“关键数字”，意义放进“为什么重要”，未定事项放进“还没确定”。",
+ "what_to_learn": "“剧透一半”先给一半（不是营收），answer_card 指向揭晓的那张卡（算力账单）；同一条故事线的招股书、营收、风险提示合成一条讲透。",
  "material_depth": "rich",
  "material_chars": 1880,
  "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
@@ -17,31 +17,46 @@
  "story": {
   "role": "headline",
   "subject": "Anthropic",
-  "title": "Anthropic 递交 S-1，拟以 ANT 登陆纳斯达克",
+  "title_candidates": [
+   {
+    "formula": "反差",
+    "text": "营收涨了十二倍，Anthropic 却还在亏"
+   },
+   {
+    "formula": "剧透一半",
+    "text": "Anthropic 要上市了，最吓人的不是营收"
+   },
+   {
+    "formula": "数字冲击",
+    "text": "半年营收 162.86 亿，算力承诺 8954 亿"
+   }
+  ],
+  "title": "Anthropic 要上市了，最吓人的不是营收",
+  "answer_card": 3,
   "cards": [
    {
-    "label": "发生了什么",
-    "headline": "拟以 ANT 上市",
+    "angle": "发生了什么",
+    "headline": "上市代码定了：ANT",
     "body": "Anthropic 向 SEC 提交 S-1，计划在纳斯达克发行 A 类普通股，由高盛和摩根士丹利承销。"
    },
    {
-    "label": "关键数字",
-    "headline": "半年营收约 13 倍",
+    "angle": "关键数字",
+    "headline": "半年营收涨了约 13 倍",
     "body": "2026 年上半年营收 162.86 亿美元，约为去年同期的 【13 倍】。"
    },
    {
-    "label": "为什么重要",
-    "headline": "算力账单极其庞大",
+    "angle": "为什么重要",
+    "headline": "这笔账单才是重点",
     "body": "算力与基础设施合同承诺约 8954 亿美元，其中 4475 亿美元须在 2031 年前支付。"
    },
    {
-    "label": "各方说法",
-    "headline": "文件警示 AI 加速",
+    "angle": "各方说法",
+    "headline": "招股书里藏着一句警告",
     "body": "据 TechCrunch，修订后的文件称内部估计可能很快达到“AI 带来的显著加速进展”的定义。"
    },
    {
-    "label": "还没确定",
-    "headline": "价格和股数未定",
+    "angle": "还没确定",
+    "headline": "还有两件事没定",
     "body": "发行股数与价格区间尚未确定，注册声明也尚未生效。"
    }
   ],

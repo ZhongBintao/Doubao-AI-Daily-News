@@ -283,8 +283,10 @@ def stage_publish(run: Run) -> dict[str, Any]:
     for scene in final.get("scenes") or []:
         if scene.get("kind") in {"story", "flash"}:
             cluster = clusters.get(str(scene.get("item_id")), {})
+            # The ledger matches future editions by title, so it keeps AIHOT's factual title, never the hook-style one.
+            title = (cluster.get("lead") or {}).get("title") or scene.get("aihot_title") or scene.get("title")
             stories.append({"item_ids": cluster.get("member_ids") or [scene.get("item_id")], "story_id": (cluster.get("lead") or {}).get("story_id", ""),
-                            "title": scene.get("title"), "role": scene.get("kind")})
+                            "title": title, "role": scene.get("kind")})
     newsroom.record_aired(run.ledger_path, run.date, stories)
     return {"package": package["path"], "xhs_title": package["copy"]["xiaohongshu"]["title"]}
 

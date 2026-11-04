@@ -2,7 +2,7 @@
  "kind": "headline",
  "hook_style": "与你有关：点出用户会直接感受到的变化",
  "when_to_use": "价格、额度、套餐、功能下线等会影响普通用户的变化，素材里没有大数字也能用",
- "what_to_learn": "“各方说法”写清谁说了什么；“对你的影响”只复述素材写到的影响；当事人没确认的事要放进“还没确定”。",
+ "what_to_learn": "三个候选各用一种套路，挑最有冲击力的；“直接结论”也可以很抓人——用当事人亲口承认的话。卡片小标题用口语（“不是故障，是太贵”），正文给出处和细节。",
  "material_depth": "rich",
  "material_chars": 850,
  "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
@@ -18,26 +18,40 @@
  "story": {
   "role": "headline",
   "subject": "Grok",
-  "title": "马斯克承认 Grok Bot 成本太高，下调用量限制",
+  "title_candidates": [
+   {
+    "formula": "与你有关",
+    "text": "用 Grok Bot 的人，额度少了一半"
+   },
+   {
+    "formula": "直接结论",
+    "text": "马斯克亲口承认：Grok Bot 太烧钱了"
+   },
+   {
+    "formula": "提问悬念",
+    "text": "Grok Bot 的额度，为什么突然砍半？"
+   }
+  ],
+  "title": "马斯克亲口承认：Grok Bot 太烧钱了",
   "cards": [
    {
-    "label": "发生了什么",
-    "headline": "配额被砍到一半",
+    "angle": "发生了什么",
+    "headline": "一个周末，额度少了一半",
     "body": "据 Telegraph 报道，SpaceX 上周末削减了 Grok Bot 的用量配额，多名用户配额减半。"
    },
    {
-    "label": "各方说法",
-    "headline": "马斯克：成本太高",
+    "angle": "各方说法",
+    "headline": "不是故障，是太贵",
     "body": "马斯克在 X 上回应称，额度被用满不是故障，服务成本相对收入“高到难以为继”。"
    },
    {
-    "label": "对你的影响",
-    "headline": "每档都有周限额",
+    "angle": "对你的影响",
+    "headline": "每一档都有周限额",
     "body": "Grok Bot 从免费到每月 200 美元分多档，所有档位都设有每周重置的使用限额。"
    },
    {
-    "label": "还没确定",
-    "headline": "之后怎么调没说",
+    "angle": "还没确定",
+    "headline": "之后怎么调？没说",
     "body": "马斯克没有直接确认削减，也没说明订阅者的限额今后如何调整。"
    }
   ],

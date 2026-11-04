@@ -1,8 +1,8 @@
 {
- "version": "6.1",
+ "version": "6.2",
  "writer": {
   "source": "agent",
-  "note": "3 headlines + 2 flashes from the recommended rundown; facts only from each event's AIHOT material pack"
+  "note": "contract 6.2: hook-style titles (3 formulas -> 1) and hook-style card headlines; facts only from each event's AIHOT material pack"
  },
  "picks": {
   "headlines": [
@@ -25,31 +25,45 @@
    "item_id": "xiu342i7osbgfxe2ezhrjndl0",
    "role": "headline",
    "subject": "Anthropic",
-   "title": "Anthropic 递交 S-1：营收暴涨，算力账单更惊人",
+   "title_candidates": [
+    {
+     "formula": "反差",
+     "text": "营收涨了十二倍，Anthropic 却转亏了"
+    },
+    {
+     "formula": "剧透一半",
+     "text": "Anthropic 要上市了，最吓人的不是营收"
+    },
+    {
+     "formula": "数字冲击",
+     "text": "算力账单，是收入的 32 倍"
+    }
+   ],
+   "title": "营收涨了十二倍，Anthropic 却转亏了",
    "cards": [
     {
-     "label": "发生了什么",
-     "headline": "拟以 ANT 登陆纳斯达克",
+     "angle": "发生了什么",
+     "headline": "上市代码定了：ANT",
      "body": "Anthropic 向 SEC 公开提交 S-1，由高盛和摩根士丹利承销，计划发行 A 类普通股。"
     },
     {
-     "label": "关键数字",
-     "headline": "单季营收近 170 亿美元",
-     "body": "三季度营收近 【170 亿美元】，是一年前的十二倍；经营利润却转为亏损 5.67 亿美元。"
+     "angle": "关键数字",
+     "headline": "涨了十二倍，为什么还亏？",
+     "body": "三季度营收近 【170 亿美元】，是一年前的十二倍；但高价短期算力让经营利润亏了 5.67 亿美元。"
     },
     {
-     "label": "为什么重要",
-     "headline": "算力账单远超收入",
+     "angle": "为什么重要",
+     "headline": "账单是收入的 32 倍",
      "body": "算力承诺约 8954 亿美元，算上未定价合同最高约 1.07 万亿，是前九个月收入的 【32 倍】。"
     },
     {
-     "label": "各方说法",
-     "headline": "文件警示 AI 加速",
+     "angle": "各方说法",
+     "headline": "招股书里藏着一句警告",
      "body": "据 TechCrunch，修订文件称内部估计可能很快达到“AI 带来的显著加速进展”的定义。"
     },
     {
-     "label": "还没确定",
-     "headline": "价格和股数未定",
+     "angle": "还没确定",
+     "headline": "还有两件事没定",
      "body": "发行股数与价格区间尚未确定；目前也没有现有模型被认定越过这一阈值。"
     }
    ],
@@ -88,31 +102,46 @@
    "item_id": "zdajxfep092u90haul1cu9if9",
    "role": "headline",
    "subject": "MIT",
-   "title": "MIT 让 GPT-6 Astra 直接改写模型权重",
+   "title_candidates": [
+    {
+     "formula": "揭秘",
+     "text": "不用训练，AI 直接动手改 AI"
+    },
+    {
+     "formula": "数字冲击",
+     "text": "只改 0.016% 的权重，数学成绩翻 6 倍"
+    },
+    {
+     "formula": "对立",
+     "text": "一边说已复现，一边说没验证"
+    }
+   ],
+   "title": "不用训练，AI 直接动手改 AI",
+   "answer_card": 3,
    "cards": [
     {
-     "label": "发生了什么",
+     "angle": "发生了什么",
      "headline": "不训练，直接改权重",
      "body": "MIT CSAIL 团队让 GPT-6 Astra 直接读取并修改 Qwen3.5-0.8B 的权重，不用梯度下降。"
     },
     {
-     "label": "关键数字",
-     "headline": "数学成绩涨到 6 倍",
+     "angle": "关键数字",
+     "headline": "只动 0.016%，成绩翻 6 倍",
      "body": "只改约 0.016%（131072 个）权重，MATH-500 从 7.9 升至 【48.1】。"
     },
     {
-     "label": "怎么做到的",
-     "headline": "定位权重，修好 bug",
+     "angle": "怎么做到的",
+     "headline": "它怎么知道该改哪里？",
      "body": "据 Latent Space，模型能定位权重的功能，依据失败轨迹一次性修复 bug，甚至从零写出整套权重。"
     },
     {
-     "label": "为什么重要",
-     "headline": "可能绕过微调",
+     "angle": "为什么重要",
+     "headline": "微调这一步，可能被绕过",
      "body": "如果成立，调整模型能力可以不走微调流程，直接作用在权重本身。"
     },
     {
-     "label": "还没确定",
-     "headline": "说法不一，有待验证",
+     "angle": "还没确定",
+     "headline": "复现了吗？说法不一",
      "body": "Latent Space 称已有独立复现，但仅限简单游戏和 RL 策略；数学成绩仍无公开的第三方验证。"
     }
    ],
@@ -147,31 +176,45 @@
    "item_id": "wrmi17szf006yhdo1g9uufn74",
    "role": "headline",
    "subject": "Grok",
-   "title": "马斯克承认 Grok Bot 成本太高，下调用量限制",
+   "title_candidates": [
+    {
+     "formula": "直接结论",
+     "text": "马斯克亲口承认：Grok Bot 太烧钱了"
+    },
+    {
+     "formula": "提问悬念",
+     "text": "Grok Bot 的额度，为什么突然砍半？"
+    },
+    {
+     "formula": "与你有关",
+     "text": "用 Grok Bot 的人，额度少了一半"
+    }
+   ],
+   "title": "马斯克亲口承认：Grok Bot 太烧钱了",
    "cards": [
     {
-     "label": "发生了什么",
-     "headline": "额度被砍到一半",
+     "angle": "发生了什么",
+     "headline": "一个周末，额度少了一半",
      "body": "据 Telegraph 报道，SpaceX 上周末削减了 Grok Bot 的用量配额，多名用户配额减半。"
     },
     {
-     "label": "各方说法",
-     "headline": "马斯克：成本太高",
+     "angle": "各方说法",
+     "headline": "不是故障，是太贵",
      "body": "马斯克在 X 上回应称，额度被用满不是故障，服务成本相对收入“高到难以为继”。"
     },
     {
-     "label": "对你的影响",
-     "headline": "每档都有周限额",
+     "angle": "对你的影响",
+     "headline": "每一档都有周限额",
      "body": "从免费版到每月 200 美元分多档，每档都有每周重置的限额，还与 Grok 和 Cursor 共用配额。"
     },
     {
-     "label": "背景",
-     "headline": "AI 已占一半收入",
+     "angle": "背景",
+     "headline": "AI 已占 SpaceX 一半收入",
      "body": "SpaceX 上月披露 AI 已占公司收入 【52%】，Grok Bot 付费周活用户达 80 万。"
     },
     {
-     "label": "还没确定",
-     "headline": "之后怎么调没说",
+     "angle": "还没确定",
+     "headline": "还会再砍吗？没说",
      "body": "马斯克没有直接确认削减，也没说明订阅者的限额今后如何调整。"
     }
    ],
@@ -202,7 +245,21 @@
    "item_id": "sxbs5a90fgybhyucacmzvrc6w",
    "role": "flash",
    "subject": "OpenAI",
-   "title": "OpenAI 推出 Grid Protectors 计划",
+   "title_candidates": [
+    {
+     "formula": "直接结论",
+     "text": "热浪一来，OpenAI 数据中心主动“让电”"
+    },
+    {
+     "formula": "数字冲击",
+     "text": "最多让出 1000 MW，够 70 万户用电"
+    },
+    {
+     "formula": "提问悬念",
+     "text": "电不够用时，OpenAI 的数据中心会怎么做？"
+    }
+   ],
+   "title": "热浪一来，OpenAI 数据中心主动“让电”",
    "point": "电网紧张时，OpenAI 的数据中心会主动少用电，首站是佐治亚州 Effingham County 园区。",
    "why": "用电高峰时最多削减 【1,000MW】，约够 70 万户平均用电；OpenAI 称大客户能摊薄电网固定成本。",
    "narration": [
@@ -220,7 +277,22 @@
    "item_id": "k02hyr58q45b0ip29mm5bfxkf",
    "role": "flash",
    "subject": "Karpathy",
-   "title": "Karpathy 用 Claude 两小时做出 HackerTube",
+   "title_candidates": [
+    {
+     "formula": "揭秘",
+     "text": "Karpathy 两小时做了个网站，自己只干了三件事"
+    },
+    {
+     "formula": "数字冲击",
+     "text": "从 4300 万条评论里，挑出 6454 个视频"
+    },
+    {
+     "formula": "直接结论",
+     "text": "Karpathy 用 Claude 做了个视频推荐站"
+    }
+   ],
+   "title": "Karpathy 两小时做了个网站，自己只干了三件事",
+   "answer_card": 2,
    "point": "Karpathy 让 Claude 从 HN 20 年的 【4300 万】 条评论里，筛出 6454 个被反复推荐的视频。",
    "why": "他只手动建 API key、部署和买域名，其余都交给 Claude Code，约两小时上线。",
    "narration": [
@@ -238,7 +310,21 @@
    "item_id": "f6dxzur6d4pwjdhvm1x6m5rfp",
    "role": "flash",
    "subject": "OpenAI",
-   "title": "ChatGPT 和 Codex 要共用一份额度",
+   "title_candidates": [
+    {
+     "formula": "与你有关",
+     "text": "12 月起，ChatGPT 和 Codex 要抢同一份额度"
+    },
+    {
+     "formula": "提问悬念",
+     "text": "ChatGPT 的额度，为什么会更不够用？"
+    },
+    {
+     "formula": "直接结论",
+     "text": "ChatGPT 与 Codex 将共用 token 额度"
+    }
+   ],
+   "title": "12 月起，ChatGPT 和 Codex 要抢同一份额度",
    "point": "12 月起，Plus、Pro 和 Business 套餐的 ChatGPT 与 Codex 共用同一份 token 额度。",
    "why": "模型越高级扣得越多，Instant 聊天不占额度；TechCrunch 称部分用户可能更常等待重置。",
    "narration": [

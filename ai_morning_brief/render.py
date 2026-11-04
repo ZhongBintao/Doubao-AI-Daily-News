@@ -81,14 +81,17 @@ def header_markup(scenes: list[Mapping[str, Any]], run_date: date) -> str:
             f'<span class="date">{run_date.month:02d}.{run_date.day:02d}</span></div>{"".join(progress)}</div></div>')
 
 
-def _card(label: str, headline: str, body: Any, index: int, *, extra: str = "") -> str:
-    """A card. Headline cards wrap the body in .more so it can collapse to label + headline."""
+def _card(angle: str, headline: str, body: Any, index: int, *, extra: str = "") -> str:
+    """A card: icon (from the hidden angle) + hook-style headline + body; no column label on screen.
+
+    Headline cards wrap the body in .more so the card can collapse to its headline.
+    """
 
     text = f'<p>{_marked(body, HL_OPEN, HL_CLOSE)}</p>'
     if headline:
         text = f'<h3>{html.escape(headline)}</h3><div class="more"><div>{text}</div></div>'
-    return (f'<article class="card{extra}" data-card="{index}"><div class="icon">{ICONS[icon_for(label, index - 1)]}</div><div class="copy">'
-            f'<div class="label">{html.escape(label)}</div>{text}</div></article>')
+    return (f'<article class="card{extra}" data-card="{index}" data-angle="{html.escape(angle)}"><div class="icon">{ICONS[icon_for(angle, index - 1)]}</div>'
+            f'<div class="copy">{text}</div></article>')
 
 
 def scene_markup(scene: Mapping[str, Any], run_date: date, logos: Mapping[str, Any]) -> str:
@@ -99,10 +102,10 @@ def scene_markup(scene: Mapping[str, Any], run_date: date, logos: Mapping[str, A
         return (f'<section class="scene kind-hook cat-{cat}" id="{sid}"><div class="orbit"></div><div class="body">'
                 f'<div class="kicker-row"><span class="kicker">今日头条</span>{_subject_chip(scene, logos)}</div>'
                 f'<h1 class="hook-title fit" data-max="118" data-min="76" data-lines="4">{_marked(scene.get("hook"), "<em>", "</em>")}</h1>'
-                f'<div class="hook-rule"></div><div class="keyfact"><div class="label">发生了什么</div><p>{html.escape(str(scene.get("keyfact") or ""))}</p></div>'
+                f'<div class="hook-rule"></div><div class="keyfact"><p>{html.escape(str(scene.get("keyfact") or ""))}</p></div>'
                 f'</div></section>')
     if kind == "story":
-        cards = [_card(str(card.get("label") or ""), str(card.get("headline") or ""), card.get("body"), i + 1)
+        cards = [_card(str(card.get("angle") or card.get("label") or ""), str(card.get("headline") or ""), card.get("body"), i + 1)
                  for i, card in enumerate(scene.get("cards") or [])]
         return (f'<section class="scene kind-story cat-{cat}" id="{sid}"><div class="body">'
                 f'<div class="kicker-row"><span class="kicker">头条</span><span class="section">{html.escape(str(scene.get("section") or ""))}</span>{_subject_chip(scene, logos)}</div>'

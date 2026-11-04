@@ -2,7 +2,7 @@
  "kind": "headline",
  "hook_style": "数字冲击：用一个最惊人的数字开头",
  "when_to_use": "素材里有一个反差很大的数字（倍数、百分比、金额、参数量）",
- "what_to_learn": "5 张卡各讲一个角度：发生了什么 → 关键数字 → 为什么重要 → 各方说法 → 还没确定。旁白解释卡片，不照念；来源之间说法不一，要分别写清是谁说的。",
+ "what_to_learn": "标题用“揭秘”制造好奇（answer_card=3 指向揭晓答案的卡），和开头钩子的数字角度错开；卡片小标题每张都是一个小钩子：一个数字、一个反差或一个短问句，问句不超过 2 个。",
  "material_depth": "rich",
  "material_chars": 910,
  "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
@@ -19,31 +19,46 @@
  "story": {
   "role": "headline",
   "subject": "MIT",
-  "title": "MIT 让 GPT-6 Astra 直接改写模型权重",
+  "title_candidates": [
+   {
+    "formula": "揭秘",
+    "text": "不用训练，AI 直接动手改 AI"
+   },
+   {
+    "formula": "数字冲击",
+    "text": "只改 0.016% 的权重，数学成绩翻 6 倍"
+   },
+   {
+    "formula": "对立",
+    "text": "一边说已复现，一边说没验证"
+   }
+  ],
+  "title": "不用训练，AI 直接动手改 AI",
+  "answer_card": 3,
   "cards": [
    {
-    "label": "发生了什么",
+    "angle": "发生了什么",
     "headline": "不训练，直接改权重",
     "body": "GPT-6 Astra 读取并修改 Qwen3.5-0.8B 的权重，全程没有梯度下降和训练循环。"
    },
    {
-    "label": "关键数字",
-    "headline": "数学成绩涨到 6 倍",
+    "angle": "关键数字",
+    "headline": "只动 0.016%，成绩翻 6 倍",
     "body": "只改约 0.016% 的权重，MATH-500 从 7.9 升至 【48.1】，GSM8K 从 13.8 升至 67.1。"
    },
    {
-    "label": "为什么重要",
-    "headline": "可能绕过微调",
+    "angle": "为什么重要",
+    "headline": "微调这一步，可能被绕过",
     "body": "如果成立，调整模型能力可以不走微调流程，直接作用在权重本身。"
    },
    {
-    "label": "各方说法",
-    "headline": "复现情况说法不一",
+    "angle": "各方说法",
+    "headline": "它真被复现了吗？",
     "body": "据 Latent Space，该能力已有独立复现，但目前只适用于简单游戏和 RL 策略。"
    },
    {
-    "label": "还没确定",
-    "headline": "核心数字待验证",
+    "angle": "还没确定",
+    "headline": "核心数字还没人验证",
     "body": "数学成绩这些数字来自研究团队，目前没有公开的第三方验证。"
    }
   ],

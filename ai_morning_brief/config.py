@@ -137,7 +137,7 @@ SPEECH_CHARS_PER_SECOND = 5.5      # visible units/s (English letters count one 
 # (narration min/max, card count) scale with the event's material depth.
 BUDGET_HOOK_MAX = 24             # spoken within the 4.5 s hook gate
 BUDGET_KEYFACT_MAX = 60
-BUDGET_TITLE_MAX = 32
+BUDGET_TITLE_MAX = 30
 BUDGET_CARD_LABEL_MAX = 6
 BUDGET_CARD_HEADLINE_MAX = 16
 BUDGET_CARD_BODY_MAX = 60
@@ -152,8 +152,31 @@ STORY_BUDGETS = {
     "thin": {"headline": (60, 140), "cards": (2, 4), "flash": (25, 80), "flash_sentences": (1, 3)},
 }
 BUDGET_MIN_SHARE_OF_MATERIAL = 0.4   # never demand more narration than this share of the material
-CARD_LABELS = ("发生了什么", "关键数字", "怎么做到的", "各方说法", "背景", "为什么重要", "对你的影响", "还没确定", "下一步")
-CARD_DEPTH_LABELS = ("各方说法", "背景", "为什么重要", "对你的影响")
+# Card angle: a hidden multiple choice (icon + depth check); the on-screen card title is free, hook-style text.
+CARD_ANGLES = ("发生了什么", "关键数字", "怎么做到的", "各方说法", "背景", "为什么重要", "对你的影响", "还没确定", "下一步")
+CARD_DEPTH_ANGLES = ("各方说法", "背景", "为什么重要", "对你的影响")
+CARD_LABELS, CARD_DEPTH_LABELS = CARD_ANGLES, CARD_DEPTH_ANGLES   # v6.1 names
+
+# Hook-style titles (contract 6.2): pick a formula, write 3 candidates, keep the best.
+# Curiosity, never deception: every fact is in the material and every suspense is paid off in the story.
+TITLE_FORMULAS = {
+    "反差": "同一件事里两个相反的事实：「营收一年涨 12 倍，却转亏了」",
+    "数字冲击": "最惊人的一个数字放前面：「只改 0.016% 的权重，成绩翻 6 倍」",
+    "提问悬念": "抛出观众想知道的问题，答案在本条里：「一年涨 12 倍，为什么还亏？」",
+    "与你有关": "点出普通用户会感受到的变化：「12 月起，ChatGPT 和 Codex 要抢同一份额度」",
+    "揭秘": "说有一个藏着的细节，答案在本条里：「招股书里藏着一句警告」",
+    "对立": "两方说法或两种走向相反：「一边说已复现，一边说没验证」",
+    "剧透一半": "先给一半，另一半在本条里：「Anthropic 要上市了，最吓人的不是营收」",
+    "直接结论": "素材里没有反差或数字时，一句话说清：「马斯克亲口承认：Grok Bot 太烧钱了」",
+}
+SUSPENSE_FORMULAS = ("提问悬念", "揭秘", "剧透一半")   # these must name the card that pays them off
+TITLE_CANDIDATES = 3
+TITLE_BANNED = ("震惊", "炸裂", "颠覆", "史上最", "全网", "速看", "必看", "太可怕", "疯了", "刚刚", "重磅", "惊呆", "吓尿",
+                "凉了", "封神", "绝了", "离谱", "爆了", "逆天", "吊打", "碾压", "王炸", "细思极恐", "万万没想到")
+# Column-style headings read as machine output; a card title must say something about this story.
+GENERIC_HEADINGS = CARD_ANGLES + ("核心信息", "要点", "详情", "总结", "概述", "简介", "最新进展", "关键细节", "补充说明", "后续进展",
+                                  "背景介绍", "事件回顾", "影响分析", "专家观点", "各方观点", "数据一览")
+MAX_QUESTIONS_PER_STORY = 2
 CARDS_PER_PAGE = 3
 
 # Video

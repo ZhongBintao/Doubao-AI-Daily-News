@@ -68,11 +68,11 @@ html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--
 .card.is-speaking { border-color: var(--accent); outline-color: transparent; box-shadow: 0 22px 44px rgba(32,40,43,.15); }
 .card .icon { flex: 0 0 60px; width: 60px; height: 60px; border-radius: 16px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
 .card .icon svg { width: 36px; height: 36px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.card .copy { min-width: 0; flex: 1; }
+.card .copy { min-width: 0; flex: 1; padding-top: 6px; }
 .card .label { color: var(--muted); font: 800 27px/1 var(--font); letter-spacing: .06em; margin: 4px 0 12px; }
 .card h3 { color: var(--ink); font: 900 46px/1.18 var(--font); letter-spacing: -.02em; }
 .card p { font: 500 35px/1.45 var(--font); letter-spacing: -.01em; overflow-wrap: anywhere; }
-/* Headline cards: the one being narrated is expanded; the rest of the page shows label + headline only. */
+/* Headline cards: the one being narrated is expanded; the rest of the page shows its headline only. */
 .card .more { display: grid; grid-template-rows: 1fr; }
 .card .more > div { min-height: 0; overflow: hidden; }
 .card .more p { padding-top: 12px; }
@@ -89,6 +89,8 @@ html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--
 /* Flash: "what happened" + "so what" cards, larger type, no headline row. */
 .kind-flash .story-title { margin-top: 30px; }
 .card.flash-card { padding: 32px 34px 36px; }
+/* the "so what" card: same section colour, lightly tinted, so the two flash cards read as fact -> meaning */
+.card.flash-card.why { background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--card); }
 .card.flash-card p { font: 600 40px/1.48 var(--font); }
 .card.flash-card .hl { font-size: 1.18em; }
 
@@ -130,7 +132,7 @@ __BODY__
   const ASCII = /^[A-Za-z0-9.\-+%#_/$]+$/, NUMERAL = /^([0-9]+(\.[0-9]+)?|[一二三四五六七八九十百千万两几]+)$/, MEASURE = /^[个款家倍条项位名亿万次年月日天层份张]$/;
   const MAX_PER_PAGE = 4;
   const PUNCT = /^[，。！？、：；,.!?:;”’）)》」』%％]+$/, OPEN = /^[“‘（(《「『]+$/, HAN = /^[一-鿿]+$/, HAN1 = /^[一-鿿]$/;
-  const SUFFIX = /^[版型级量率性者商端侧式类款化家方]$/, PREFIX = /^[大小新超总副前首老]$/, PARTICLE = /^[的了着过地得们]$/;
+  const SUFFIX = /^[版型级量率性者商端侧式类款化家方额费价值]$/, PREFIX = /^[大小新超总副前首老]$/, PARTICLE = /^[的了着过地得们]$/;
   const words = (text) => {
     if (!seg) return [text];
     const out = [];

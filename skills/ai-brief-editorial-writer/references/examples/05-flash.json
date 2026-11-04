@@ -2,7 +2,7 @@
  "kind": "flash",
  "hook_style": "快讯：事实 + 所以呢",
  "when_to_use": "每条快讯都用这个结构：point 讲发生了什么，why 讲反差、影响或各方反应",
- "what_to_learn": "第 1 句讲 point（card=1），后面讲 why（card=2）；why 不是 point 换个说法。",
+ "what_to_learn": "快讯也写 3 个标题候选再挑一个；point 讲发生了什么，why 讲“所以呢”，第 1 句旁白讲 point（card=1），后面讲 why（card=2）。用提问悬念时 answer_card 写 1 或 2。",
  "material_depth": "medium",
  "material_chars": 390,
  "material_note": "节选自该新闻的 AIHOT 素材包（facts/background），完整素材更长；example 里的每个数字和英文名都能在节选里找到。",
@@ -13,7 +13,21 @@
  "story": {
   "role": "flash",
   "subject": "OpenAI",
-  "title": "OpenAI 推出 Grid Protectors 计划",
+  "title_candidates": [
+   {
+    "formula": "直接结论",
+    "text": "热浪一来，OpenAI 数据中心主动“让电”"
+   },
+   {
+    "formula": "数字冲击",
+    "text": "最多让出 1000 MW，够 70 万户用电"
+   },
+   {
+    "formula": "提问悬念",
+    "text": "电不够用时，OpenAI 的数据中心会怎么做？"
+   }
+  ],
+  "title": "热浪一来，OpenAI 数据中心主动“让电”",
   "point": "OpenAI 在佐治亚州试点 Grid Protectors，电网紧张时数据中心主动降低用电。",
   "why": "极端天气时最多释放 【1000 MW】 电力，据 The Verge 约够 70 万户家庭用空调。",
   "narration": [

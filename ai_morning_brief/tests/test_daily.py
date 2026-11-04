@@ -147,6 +147,7 @@ class DirectorTests(unittest.TestCase):
                 plan = {"version": director.PLAN_VERSION, "picks": {"headlines": ["h"], "flashes": ["x"]}, "hook": head["hook"],
                         "stories": [dict(head["story"], item_id="h"), dict(example["story"], item_id="x")]}
             self.assertEqual(director.validate_plan(plan, selection), [], example["hook_style"])
+            self.assertEqual(len(example["story"]["title_candidates"]), C.TITLE_CANDIDATES)
 
     def test_task_contains_steps_pool_and_examples(self):
         task = director.build_task(RUN_DATE, self.selection, plan_path=Path("plan.json"), check_command="check")
@@ -403,22 +404,71 @@ class DepthContractTests(unittest.TestCase):
         self.assertEqual(director.validate_plan(fallback, self.selection), [])
         self.assertGreaterEqual(len(fallback["stories"]), 4, "a rich day gets several stories even without an agent")
 
-    def test_card_labels_are_a_fixed_choice(self):
+    def test_card_angle_is_a_hidden_fixed_choice(self):
         plan = self.fresh()
-        plan["stories"][0]["cards"][1]["label"] = "规模"
-        self.assertTrue(any("只能从这些标签里选" in e for e in director.validate_plan(plan, self.selection)))
+        plan["stories"][0]["cards"][1]["angle"] = "规模"
+        self.assertTrue(any("只能从这些角度里选" in e for e in director.validate_plan(plan, self.selection)))
+        old = self.fresh()
+        card = old["stories"][0]["cards"][0]
+        card["label"] = card.pop("angle")
+        self.assertTrue(any("不再有 label" in e for e in director.validate_plan(old, self.selection)))
+
+    def test_title_needs_three_formulas_and_must_be_one_of_them(self):
+        plan = self.fresh()
+        story = plan["stories"][0]
+        story["title_candidates"] = story["title_candidates"][:1]
+        self.assertTrue(any("个不同套路的标题候选" in e for e in director.validate_plan(plan, self.selection)))
+        plan = self.fresh()
+        plan["stories"][0]["title"] = "一个不在候选里的标题"
+        self.assertTrue(any("原样照抄 title_candidates" in e for e in director.validate_plan(plan, self.selection)))
+        plan = self.fresh()
+        cands = plan["stories"][0]["title_candidates"]
+        cands[1]["formula"] = cands[0]["formula"]
+        self.assertTrue(any("不同的套路" in e for e in director.validate_plan(plan, self.selection)))
+
+    def test_suspense_title_must_name_the_card_that_answers_it(self):
+        plan = self.fresh()
+        mit = plan["stories"][1]
+        self.assertIn(next(c["formula"] for c in mit["title_candidates"] if c["text"] == mit["title"]), C.SUSPENSE_FORMULAS)
+        mit.pop("answer_card")
+        self.assertTrue(any("answer_card" in e for e in director.validate_plan(plan, self.selection)))
+
+    def test_hook_titles_stay_curious_not_sensational(self):
+        plan = self.fresh()
+        story = plan["stories"][0]
+        story["title_candidates"][0]["text"] = story["title"] = "震惊！营收涨了十二倍，Anthropic 却转亏了！"
+        errors = director.validate_plan(plan, self.selection)
+        self.assertTrue(any("夸张词" in e for e in errors), errors)
+        self.assertTrue(any("最多一个" in e for e in errors), errors)
+
+    def test_card_headline_is_not_a_column_name_and_questions_are_capped(self):
+        plan = self.fresh()
+        cards = plan["stories"][0]["cards"]
+        cards[0]["headline"] = "发生了什么"
+        errors = director.validate_plan(plan, self.selection)
+        self.assertTrue(any("是栏目名" in e for e in errors), errors)
+        plan = self.fresh()
+        for card, q in zip(plan["stories"][0]["cards"], ("上市了吗？", "为什么还亏？", "账单多大？")):
+            card["headline"] = q
+        self.assertTrue(any("个问句" in e for e in director.validate_plan(plan, self.selection)))
+
+    def test_title_must_not_repeat_the_hook(self):
+        plan = self.fresh()
+        story = plan["stories"][0]
+        story["title_candidates"][0]["text"] = story["title"] = director.plain(plan["hook"]["text"])
+        self.assertTrue(any("和开头钩子几乎一样" in e for e in director.validate_plan(plan, self.selection)))
 
     def test_rich_story_needs_a_depth_card(self):
         plan = self.fresh()
         for card in plan["stories"][0]["cards"]:
-            if card["label"] in C.CARD_DEPTH_LABELS:
-                card["label"] = "下一步" if card["label"] != "下一步" else "怎么做到的"
+            if card["angle"] in C.CARD_DEPTH_ANGLES:
+                card["angle"] = "下一步" if card["angle"] != "下一步" else "怎么做到的"
         errors = director.validate_plan(plan, self.selection)
         self.assertTrue(any("至少要有一张" in e for e in errors), errors)
 
     def test_card_body_must_not_restate_headline(self):
         plan = self.fresh()
-        plan["stories"][0]["cards"][0] = {"label": "发生了什么", "headline": "拟以 ANT 登陆纳斯达克", "body": "拟以 ANT 登陆纳斯达克。"}
+        plan["stories"][0]["cards"][0] = {"angle": "发生了什么", "headline": "拟以 ANT 登陆纳斯达克", "body": "拟以 ANT 登陆纳斯达克。"}
         self.assertTrue(any("几乎是同一句话" in e for e in director.validate_plan(plan, self.selection)))
 
     def test_thin_narration_on_rich_material_is_rejected(self):
@@ -439,7 +489,8 @@ class DepthContractTests(unittest.TestCase):
     def test_caveat_in_material_must_be_kept(self):
         plan = self.fresh()
         mit = plan["stories"][1]
-        mit["cards"] = [c for c in mit["cards"] if c["label"] != "还没确定"]
+        mit["cards"] = [c for c in mit["cards"] if c["angle"] != "还没确定"]
+        mit["answer_card"] = min(mit.get("answer_card", 1), len(mit["cards"]))
         mit["narration"] = [n for n in mit["narration"] if n["card"] <= len(mit["cards"])]
         errors = director.validate_plan(plan, self.selection)
         self.assertTrue(any("尚未验证" in e for e in errors), errors)
@@ -449,6 +500,8 @@ class DepthContractTests(unittest.TestCase):
         self.assertIs(final["units"][0]["caption"], False)
         outro = final["scenes"][-1]
         self.assertEqual(len(outro["recap"]), len(self.plan["stories"]))
+        story = next(s for s in final["scenes"] if s["kind"] == "story")
+        self.assertNotEqual(story["title"], story["aihot_title"], "screen shows the hook title, the ledger keeps the AIHOT title")
         flash_units = [u for u in final["units"] if u["scene_id"] == "story-04"]
         self.assertEqual([u["card"] for u in flash_units], [1, 2])
 

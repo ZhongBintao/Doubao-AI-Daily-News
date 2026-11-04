@@ -1,19 +1,22 @@
 ---
 name: ai-brief-editorial-writer
-description: Write the AI每日早报 v6 director plan (director_plan.json) — pick stories from the AIHOT pool and fill the hook, labelled cards and per-sentence narration from each event's AIHOT material pack, under budgets that scale with the material, following the bundled examples.
+description: Write the AI每日早报 v6 director plan (director_plan.json) — pick stories from the AIHOT pool, write hook-style titles (three formula candidates, keep one) and hook-style card headlines, and per-sentence narration from each event's AIHOT material pack, under budgets that scale with the material, following the bundled examples.
 metadata:
   author: local-project
-  version: "6.1.0"
+  version: "6.2.0"
 ---
 
 # AI每日早报 v6 · 导演稿写作
 
-你只需要做“选择题 + 填空题”，版式、动画、时长都由程序负责。目标是**把每条新闻讲清楚、讲透**：不只说发生了什么，还要讲关键数字、各方说法、背景和为什么重要。
+你只需要做“选择题 + 填空题”，版式、动画、时长都由程序负责。两个目标：
+
+1. **讲清楚、讲透**：不只说发生了什么，还要讲关键数字、各方说法、背景和为什么重要。
+2. **让人想看下去**：大标题和卡片小标题像短视频标题一样抓眼球——数字、反差、悬念、和你有关；但**事实必须来自素材，悬念必须在这条里揭晓**。
 
 ## 输入与输出
 
 - 读：`outputs/YYYY-MM-DD/artifacts/director_task.json`（steps、rules、budgets、pool、recommended、examples、output_template）
-- 写：`outputs/YYYY-MM-DD/artifacts/director_plan.json`（`"version": "6.1"`）
+- 写：`outputs/YYYY-MM-DD/artifacts/director_plan.json`（`"version": "6.2"`）
 - 校验：`python -m ai_morning_brief.daily --date YYYY-MM-DD --check-plan`
 
 ## 素材在哪里
@@ -27,28 +30,42 @@ metadata:
 | `angle_hint` | AIHOT 编辑写的“为什么值得看” | **不能引用**，只用来决定讲哪个角度 |
 | `budget` | 这条新闻的字数范围、卡片数、能否做头条 | 按它写 |
 
-## 七个步骤
+## 八个步骤
 
 1. **选新闻**：头条最多 3 条（只能选 `budget.can_headline=true` 的），快讯最多 5 条。条数由当天内容决定，不必凑满；拿不准就**照抄 `recommended`**（程序已按 3 分钟上限排好）。
-2. **读素材**：先把 `facts` 和 `background` 读完，再动笔。
-3. **写钩子**：`hook.text`（≤24 字）说出第一条头条最抓人的点，可用一对【】；`hook.keyfact`（≤60 字）用一句客观事实说清“谁做了什么”。钩子写法见 examples 01–04。
-4. **写头条卡片**：卡片数按 `budget.cards`。每张卡的 `label` 从下面 9 个里**选一个**，同一条新闻不重复：
+2. **读素材**：先把 `facts` 和 `background` 读完，再动笔。先找出每条新闻里**最反差、最惊人、和普通人最有关**的那一点。
+3. **写钩子**：`hook.text`（≤24 字）说出第一条头条最抓人的点，可用一对【】；`hook.keyfact`（≤60 字）用一句客观事实说清“谁做了什么”。
+4. **写标题（头条和快讯都要）——先写 3 个，再挑 1 个**：从下面 8 种套路里挑 **3 种不同的**，各写一个候选放进 `title_candidates`（`formula` + `text`，≤30 字），再挑最抓人的一个**原样**填进 `title`。
 
-   `发生了什么` · `关键数字` · `怎么做到的` · `各方说法` · `背景` · `为什么重要` · `对你的影响` · `还没确定` · `下一步`
+   | 套路 | 怎么写 | 例子 |
+   |---|---|---|
+   | 反差 | 同一件事里两个相反的事实 | 营收涨了十二倍，Anthropic 却转亏了 |
+   | 数字冲击 | 最惊人的一个数字放前面 | 只改 0.016% 的权重，数学成绩翻 6 倍 |
+   | 提问悬念 | 抛出观众想知道的问题 | AI 开发平台，为什么接连出事？ |
+   | 与你有关 | 点出普通用户会感受到的变化 | 12 月起，ChatGPT 和 Codex 要抢同一份额度 |
+   | 揭秘 | 说有一个藏着的细节 | 不用训练，AI 直接动手改 AI |
+   | 对立 | 两方说法或两种走向相反 | 一边说已复现，一边说没验证 |
+   | 剧透一半 | 先给一半，另一半在后面 | Anthropic 要上市了，最吓人的不是营收 |
+   | 直接结论 | 当事人原话或一句话结论 | 马斯克亲口承认：Grok Bot 太烧钱了 |
 
-   - 第一张通常是“发生了什么”。
-   - `budget.needs_depth_card=true` 时，至少要有一张 `各方说法 / 背景 / 为什么重要 / 对你的影响`。
-   - `headline`（≤16 字）写结论，`body`（≤60 字）补细节，两者不能是同一句话换个说法；`body` 可用一对【】高亮数字。
-5. **写头条旁白**：逐句写（每句 ≤42 字，句末“。！？”），`card` 标明讲第几张卡（从 1 开始、按顺序、每张卡至少一句）。旁白要**解释**卡片，不要照念；合计字数落在 `budget.headline_narration` 范围内。
-6. **写快讯**：`point`（≤60 字）讲发生了什么；`why`（≤60 字）讲“所以呢”——反差、影响或各方反应（素材足够时必填）。旁白写 `budget.flash_sentences` 句：第 1 句讲 point（`card: 1`），后面讲 why（`card: 2`），合计落在 `budget.flash_narration` 范围内。
-7. **校验**：运行校验命令，按报错逐条改，最多 2 次。还不行也没关系，程序会自动用兜底稿出片。
+   - 用了**提问悬念 / 揭秘 / 剧透一半**，必须写 `answer_card`：答案在第几张卡（快讯写 1 或 2）。
+   - 第一条头条的标题不能和钩子重复——钩子用了数字，标题就换反差或悬念。
+5. **写头条卡片**：卡片数按 `budget.cards`。每张卡三项：
+   - `angle`（**不上屏**，只决定图标）：从 `发生了什么 / 关键数字 / 怎么做到的 / 各方说法 / 背景 / 为什么重要 / 对你的影响 / 还没确定 / 下一步` 里选，同一条不重复；`budget.needs_depth_card=true` 时至少一张是 `各方说法 / 背景 / 为什么重要 / 对你的影响`。
+   - `headline`（≤16 字，**上屏**）：一个小钩子，让人想读正文——数字（“半年营收涨了约 13 倍”）、反差（“不是故障，是太贵”）、短问句（“它怎么知道该改哪里？”）、口语（“还有两件事没定”）。**不要写栏目名**（“发生了什么”“关键数字”“背景介绍”都会报错）。
+   - `body`（≤60 字）：给出答案和细节，不能是 headline 换个说法；可用一对【】高亮数字。
+   - 每条新闻（标题 + 所有卡片小标题）**问句最多 2 个**，其余用数字或反差句。
+6. **写头条旁白**：逐句写（每句 ≤42 字，句末“。！？”），`card` 标明讲第几张卡（从 1 开始、按顺序、每张卡至少一句）。旁白要**解释**卡片，不要照念；合计字数落在 `budget.headline_narration` 范围内。
+7. **写快讯**：`point`（≤60 字）讲发生了什么；`why`（≤60 字）讲“所以呢”——反差、影响或各方反应（素材足够时必填）。旁白写 `budget.flash_sentences` 句：第 1 句讲 point（`card: 1`），后面讲 why（`card: 2`）。
+8. **校验**：运行校验命令，按报错逐条改，最多 2 次。还不行也没关系，程序会自动用兜底稿出片。
 
 ## 必须遵守
 
-- 所有**数字、英文名、产品名**必须原样出现在该条新闻的 `facts` 或 `background` 里。数字写法要一致（素材写 9 就写 9，写“九个”就写“九个”）。
+- 所有**数字、英文名、产品名**必须原样出现在该条新闻的 `facts` 或 `background` 里。数字写法要一致（素材写 9 就写 9，写“九个”就写“九个”）。不要自己推算新数字（“是营收的几十倍”这种素材里没有的说法不能写）。
+- **好奇心，不夸张**：不用“震惊、炸裂、颠覆、史上最、全网、速看、太可怕、重磅……”（完整列表见 `budgets.banned_words`）；“？”“！”合计最多一个；标题里的悬念必须在本条里揭晓。
 - “为什么重要 / 对你的影响”只复述素材里**已经写出的**意义或影响，不自己推测、预测或给建议。
-- 素材说“尚未验证 / 尚无复现 / 尚未确定 / 说法不一”时，用“还没确定”卡片或一句旁白保留这层意思。
-- “各方说法”写清是谁说的：“据 TechCrunch，……”“马斯克称……”。来源之间说法不一时，分别写出来。
+- 素材说“尚未验证 / 尚无复现 / 尚未确定 / 说法不一”时，用 angle 为“还没确定”的卡片或一句旁白保留这层意思。
+- angle 是“各方说法”的卡片，正文写清是谁说的：“据 TechCrunch，……”“马斯克称……”。
 - 不写分数、链接、“AIHOT”。
 - 字数按可见字符算，英文单词按字母数算（`Fireworks` = 9 字），英文多时写短一点。全片旁白 ≤900 字（约 3 分钟）。
 
@@ -61,13 +78,20 @@ metadata:
 | `超过 N 字` | 删掉修饰语或换更短的说法 |
 | `只有 N 字，这条素材足够讲到 …` | 从 facts 的各来源报道、background 里补充细节、背景或各方说法 |
 | `这些数字或英文在该新闻素材里找不到` | 改成素材里的原样写法，或删掉 |
-| `label：只能从这些标签里选一个` | 换成 9 个标签之一 |
-| `至少要有一张“各方说法 / 背景 / 为什么重要 / 对你的影响”` | 加一张这样的卡，内容从各来源报道或 background 里找 |
-| `小标题和正文几乎是同一句话` | 小标题写结论，正文写具体细节（数字、谁、怎么做） |
-| `“各方说法”要写清是谁说的` | 正文加上“据 X，”或“X 称” |
+| `先写 3 个不同套路的标题候选` / `每个候选用不同的套路` | title_candidates 写 3 个，formula 各不相同 |
+| `必须原样照抄 title_candidates 里的一个候选` | title 和挑中的候选 text 一字不差 |
+| `answer_card：标题用了“…”` | 写答案在第几张卡 |
+| `不要用夸张词` / `“？”和“！”合计最多一个` | 换成素材里的具体数字或反差 |
+| `和开头钩子几乎一样` | 标题换一个角度（另一个数字、反差或悬念） |
+| `是栏目名，不是标题` | 小标题写一句和这条新闻有关的话 |
+| `一共有 N 个问句` | 把多出来的问句改成数字或反差句 |
+| `angle：只能从这些角度里选一个` / `不再有 label` | 用 angle，选 9 个角度之一 |
+| `至少要有一张 angle 是“各方说法 / 背景 / 为什么重要 / 对你的影响”` | 加一张这样的卡，内容从各来源报道或 background 里找 |
+| `小标题和正文几乎是同一句话` | 小标题勾起兴趣，正文给答案和细节 |
+| `正文要写清是谁说的` | 正文加上“据 X，”或“X 称” |
 | `素材里提到“尚未验证 / 尚未确定”` | 加一张“还没确定”卡，或加一句旁白 |
 | `必须以句号、问号或感叹号结尾` | 句末加“。” |
 | `card 编号必须从小到大` / `第 N 张卡没有被讲到` | 按卡片顺序给每句标 card，每张卡至少一句 |
 | `顺序和 picks 不一致` | stories 先按 picks.headlines 写头条，再按 picks.flashes 写快讯 |
 
-完整字段契约见 [references/editorial-contract.md](references/editorial-contract.md)，示范见 `references/examples/*.json`（01–04 头条，05 快讯）。
+完整字段契约见 [references/editorial-contract.md](references/editorial-contract.md)，示范见 `references/examples/*.json`（01–04 头条，05 快讯；每个示范都有 3 个标题候选和挑选理由 `what_to_learn`）。
