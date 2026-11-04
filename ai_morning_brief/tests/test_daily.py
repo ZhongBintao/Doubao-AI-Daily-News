@@ -228,6 +228,26 @@ class DoubaoTakeTests(unittest.TestCase):
         cut = voice.watermark_cut(samples) / voice.SAMPLE_RATE
         self.assertTrue(2.5 <= cut <= 2.6, cut)
 
+    def test_colleague_rule_rms_300_and_first_pause_of_018s(self):
+        import math
+        from array import array
+        from ai_morning_brief import voice
+        rate = voice.SAMPLE_RATE
+
+        def tone(seconds, amp):
+            return [int(amp * math.sin(2 * math.pi * 220 * i / rate)) for i in range(int(seconds * rate))]
+
+        # no leading silence, tag 0.0-2.25 s, a pause that is quiet but not digital silence (RMS ~140 < 300), text
+        samples = array("h", tone(2.25, 7000) + tone(0.20, 200) + tone(3.0, 7000))
+        scan = voice.watermark_scan(samples)
+        self.assertEqual(scan["status"], "cut")
+        self.assertAlmostEqual(scan["onset_seconds"], 0.0, places=2)
+        self.assertAlmostEqual(scan["pause_start_seconds"], 2.25, delta=0.011)
+        self.assertAlmostEqual(scan["cut"] / rate, 2.45, delta=0.011, msg="the text starts where the pause ends")
+        # a 0.17 s pause is too short to end the tag
+        short = array("h", tone(0.33, 0) + tone(1.92, 7000) + tone(0.17, 0) + tone(3.0, 7000))
+        self.assertIsNone(voice.watermark_cut(short))
+
     def test_audio_without_the_tag_is_never_trimmed(self):
         from ai_morning_brief import voice
         # "OpenAI，……": a comma pause 0.85 s in, then speech through the whole tag window

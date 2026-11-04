@@ -36,6 +36,8 @@ from array import array
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import numpy as np
+
 from . import config as C
 
 SAMPLE_RATE = 48000
@@ -459,41 +461,55 @@ def _silence_threshold(levels: Sequence[float]) -> float:
     return max(speech - 35.0, min(floor + 12.0, speech - 20.0))
 
 
-def watermark_cut(samples: array, sr: int = SAMPLE_RATE) -> int | None:
-    """Sample index where the leading Doubao tag ("内容由豆包AI生成") and the pause after it end, or None.
+def watermark_scan(samples: array, sr: int = SAMPLE_RATE) -> dict[str, Any]:
+    """Find the leading Doubao tag ("内容由豆包AI生成") and the pause after it.
 
-    Layout of every Doubao answer: ~0.32 s silence, the tag (ends ~2.25 s), 0.27-0.46 s
-    silence, then the text. The cut is the end of the first pause of at least
-    DOUBAO_WATERMARK_MIN_GAP that starts inside DOUBAO_WATERMARK_WINDOW (pauses before the
-    window lie inside the tag). No such pause (no tag, a pause in the wrong place) returns
-    None, so a recording without the tag is never trimmed.
+    Layout of every Doubao answer: silence (0-0.33 s), the tag (0.33-2.25 s), a pause of at
+    least 0.18 s, then the text. Same rule as measured on real Doubao audio: 10 ms frames, RMS
+    >= DOUBAO_WATERMARK_RMS_THRESHOLD is voice; after the first voiced frame, the first silent
+    run of at least DOUBAO_WATERMARK_MIN_GAP ends the tag, and the text starts where it ends.
+    Safety check: that pause must start inside DOUBAO_WATERMARK_WINDOW, so a recording without
+    the tag (whose first pause is a comma early on, or a sentence break later) is never cut.
+
+    Returns ``status`` (``cut`` / ``not-found``), ``cut`` (sample index or None), the onset and
+    pause times in seconds, and ``reason`` when nothing was cut.
     """
 
-    if sr != SAMPLE_RATE or not samples:
-        return None
-    levels = _frame_levels(samples)
-    threshold = _silence_threshold(levels)
-    onset = next((i for i, level in enumerate(levels) if level >= threshold), None)
+    window = int(sr * 0.01)
+    lo, hi = C.DOUBAO_WATERMARK_WINDOW
+    head = np.frombuffer(samples, dtype=np.int16)[: int((hi + 2.0) * sr)].astype(np.float64)
+    frames = len(head) // window
+    if frames == 0:
+        return {"status": "not-found", "cut": None, "reason": "音频为空"}
+    rms = np.sqrt((head[: frames * window].reshape(frames, window) ** 2).mean(axis=1))
+    voiced = rms >= C.DOUBAO_WATERMARK_RMS_THRESHOLD
+    onset = int(np.argmax(voiced)) if voiced.any() else None
     if onset is None:
-        return None
+        return {"status": "not-found", "cut": None, "reason": "开头没有有声段"}
     need = max(1, round(C.DOUBAO_WATERMARK_MIN_GAP * 100))
-    lo, hi = (round(t * 100) for t in C.DOUBAO_WATERMARK_WINDOW)
     run = 0
-    for i in range(onset, len(levels)):
-        if levels[i] < threshold:
+    for i in range(onset, frames):
+        if not voiced[i]:
             run += 1
             continue
         if run >= need:
-            pause_start = i - run
-            if lo <= pause_start <= hi:
-                return max(0, (i - 2)) * FRAME   # keep 20 ms before the text starts
-            if pause_start > hi:
-                return None
-            # an earlier pause lies inside the tag itself: keep looking
-        if i > hi + need:
-            return None
+            start, end = (i - run) / 100, i / 100
+            found = {"onset_seconds": onset / 100, "pause_start_seconds": start, "pause_end_seconds": end}
+            if lo <= start <= hi:
+                return {"status": "cut", "cut": i * window, **found}
+            if start > hi:
+                return {"status": "not-found", "cut": None, **found,
+                        "reason": f"第一个 ≥{C.DOUBAO_WATERMARK_MIN_GAP}s 的停顿在 {start:.2f}s，晚于 {hi}s，不像水印"}
+            # a pause before the window would lie inside the tag itself: keep looking
         run = 0
-    return None
+    return {"status": "not-found", "cut": None, "onset_seconds": onset / 100,
+            "reason": f"开头 {hi + 2.0:.0f}s 内没有起点在 {lo}–{hi}s 之间、≥{C.DOUBAO_WATERMARK_MIN_GAP}s 的停顿"}
+
+
+def watermark_cut(samples: array, sr: int = SAMPLE_RATE) -> int | None:
+    """Sample index where the Doubao tag and the pause after it end (the text starts), or None."""
+
+    return watermark_scan(samples, sr)["cut"]
 
 
 def _pauses(levels: list[float], threshold: float, first: int, last: int, min_frames: int) -> list[tuple[int, int]]:
@@ -617,14 +633,15 @@ def cut_take(raw: array, texts: list[str], *, rate: float) -> dict[str, Any]:
     """
 
     raw_seconds = len(raw) / SAMPLE_RATE
-    wm = watermark_cut(raw)
+    scan = watermark_scan(raw)
+    wm = scan["cut"]
     body = raw[wm:] if wm else raw
     start, end = _voiced_bounds(body)
     body = body[start:end]
     voiced_seconds = len(body) / SAMPLE_RATE
     expected = sum(sentence_weight(t) for t in texts) / rate
     out: dict[str, Any] = {"raw_seconds": round(raw_seconds, 3), "voiced_seconds": round(voiced_seconds, 3), "body": body,
-                           "watermark": {"status": "cut" if wm else "not-found", "seconds": round((wm or 0) / SAMPLE_RATE, 3)}}
+                           "watermark": {**{k: v for k, v in scan.items() if k != "cut"}, "seconds": round((wm or 0) / SAMPLE_RATE, 3)}}
     problem = None
     if raw_seconds >= C.DOUBAO_TAKE_MAX_SECONDS - TRUNCATED_MARGIN:
         problem = ("truncated", f"音频 {raw_seconds:.1f}s，接近单次上限 {C.DOUBAO_TAKE_MAX_SECONDS:.0f}s，可能没读完")

@@ -239,9 +239,12 @@ DOUBAO_RATE_LIMIT_WAIT_SECONDS = 10
 DOUBAO_SPEECH_RATE_DEFAULT = 5.0
 DOUBAO_RATE_HISTORY = 10
 DOUBAO_RATE_BOUNDS = (3.0, 9.0)       # a measurement outside this range is ignored
-# Every Doubao answer starts with a fixed spoken tag "内容由豆包AI生成": ~0.32 s silence, the tag (ends
-# ~2.25 s), 0.27-0.46 s silence, then the text. The cut is the end of the first pause of at least
-# MIN_GAP that starts inside the window; no such pause -> nothing is cut and selfcheck warns.
+# Every Doubao answer starts with a fixed spoken tag "内容由豆包AI生成": silence (0-0.33 s), the tag
+# (0.33-2.25 s), a pause of at least 0.18 s, then the text. Rule measured on real Doubao audio (colleague,
+# 2026-11-04): 10 ms frames, RMS >= 300 (16-bit) is voice; find the first voiced frame, then the first run
+# of silence >= MIN_GAP after it; the text starts where that run ends. Safety check on top: that pause must
+# start inside WINDOW, otherwise nothing is cut and selfcheck warns.
+DOUBAO_WATERMARK_RMS_THRESHOLD = 300
 DOUBAO_WATERMARK_WINDOW = (1.6, 3.0)  # seconds from the start of the answer where the tag may end
 DOUBAO_WATERMARK_MIN_GAP = 0.18
 DOUBAO_WATERMARK_SECONDS = 2.7        # tag + pauses, used in the take-length estimate
