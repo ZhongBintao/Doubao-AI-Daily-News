@@ -803,9 +803,17 @@ def finalize(run_dir: Path, manifest: Mapping[str, Any]) -> dict[str, Any]:
     if missing:
         raise VoiceError("missing narration audio for units: " + ", ".join(missing))
     entries = []
+    loose: dict[str, str] = {}   # Doubao sentences saved one file each (not from a take): tag status
     for unit in manifest.get("units") or []:
         samples = decode_mono(Path(unit["output_path"]))
         take_id = unit.get("take_id")
+        if not take_id and manifest.get("provider") == "doubao":
+            # Safety net: the agent synthesized this sentence on its own instead of reading the take.
+            # Every Doubao answer carries the tag, so strip it here too.
+            scan = watermark_scan(samples)
+            loose[unit["unit_id"]] = scan["status"]
+            if scan["cut"]:
+                samples = samples[scan["cut"]:]
         if take_id:
             body = samples
             start, end = _voiced_bounds(samples, pad_seconds=0.0)
@@ -838,6 +846,9 @@ def finalize(run_dir: Path, manifest: Mapping[str, Any]) -> dict[str, Any]:
                         "duration": round(duration, 4), "lead": round(lead, 4), "tail": round(tail, 4), "take_id": take_id,
                         "alignment": alignment, "spoken_text": unit["spoken_text"], "display_text": unit["display_text"]})
     summary = _take_summary(manifest)
+    if summary is not None and loose:
+        summary["sentences_outside_takes"] = sorted(loose)
+        summary["watermark_not_found"] += [uid for uid, status in sorted(loose.items()) if status != "cut"]
     if summary and summary["measurements"]:
         record_speech_rate(run_dir.parent / "_state", run_dir.name, summary["measurements"])
     result = {"version": C.V6_VERSION, "provider": manifest.get("provider"), "units": entries,

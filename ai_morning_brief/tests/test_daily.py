@@ -617,6 +617,24 @@ class OrchestratorTests(unittest.TestCase):
             state = json.loads(voice.rate_state_path(run_dir.parent / "_state").read_text(encoding="utf-8"))
             self.assertEqual([m["take"] for m in state["measurements"] if m["date"] == run_dir.name], ["t01"])
 
+    def test_doubao_sentences_saved_one_by_one_still_lose_the_tag(self):
+        from ai_morning_brief import voice
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            texts = ["第一条头条讲了一件大事。", "关注我，每天看懂大事。"]
+            final = {"units": [{"unit_id": f"u0{i + 1}", "scene_id": "story-01", "spoken_text": t, "display_text": t} for i, t in enumerate(texts)]}
+            manifest = voice.build_manifest(run_dir, final, "doubao")
+            # an agent ignoring the takes: one request per sentence, saved to the sentence paths
+            for unit, text in zip(manifest["units"], texts):
+                voice.write_wav(Path(unit["output_path"]), self._tagged(self._speech_like([text])[0]))
+            self.assertEqual(voice.prepare_doubao(run_dir, run_dir / "artifacts" / "tts_manifest.json", manifest), [])
+            result = voice.finalize(run_dir, manifest)
+            plain = self._speech_like([texts[0]])[0]
+            expected = (voice._voiced_bounds(plain)[1] - voice._voiced_bounds(plain)[0]) / voice.SAMPLE_RATE
+            self.assertAlmostEqual(result["units"][0]["duration"], expected, delta=0.08, msg="the 2.5 s tag is gone")
+            self.assertEqual(result["doubao_takes"]["sentences_outside_takes"], ["u01", "u02"])
+            self.assertEqual(result["doubao_takes"]["watermark_not_found"], [])
+
     def test_doubao_take_without_pauses_is_asked_again_in_halves(self):
         from ai_morning_brief import voice
         with tempfile.TemporaryDirectory() as tmp:
