@@ -157,7 +157,7 @@ BUDGET_MIN_SHARE_OF_MATERIAL = 0.4   # never demand more narration than this sha
 # Card angle: a hidden multiple choice (icon + depth check); the on-screen card title is free, hook-style text.
 CARD_ANGLES = ("发生了什么", "关键数字", "怎么做到的", "各方说法", "背景", "为什么重要", "对你的影响", "还没确定", "下一步")
 CARD_DEPTH_ANGLES = ("各方说法", "背景", "为什么重要", "对你的影响")
-CARD_LABELS, CARD_DEPTH_LABELS = CARD_ANGLES, CARD_DEPTH_ANGLES
+CARD_LABELS, CARD_DEPTH_LABELS = CARD_ANGLES, CARD_DEPTH_ANGLES   # v6.1 names
 
 # Hook-style titles (contract 6.2): pick a formula, write 3 candidates, keep the best.
 # Curiosity, never deception: every fact is in the material and every suspense is paid off in the story.
@@ -188,7 +188,7 @@ TITLE_TONE_EXAMPLES = [
 ]
 # Punchy but false - never write these (they change the fact, not just the tone).
 TITLE_TONE_DONTS = [
-    {"text": "每 5 次搜索，ChatGPT 就分了 1 次", "why": "素材说的是“相当于 Google 的 20%”，不是抢走份额"},
+    {"text": "每 5 次搜索，ChatGPT 就分走 1 次", "why": "素材说的是“相当于 Google 的 20%”，不是抢走份额"},
     {"text": "你花钱买的 AI，可能被偷偷换成便宜货", "why": "素材只说能防止偷换，没说正在发生"},
     {"text": "欧洲最强开源模型，连研发秘方都公开了", "why": "“欧洲最强”素材里没有"},
 ]
