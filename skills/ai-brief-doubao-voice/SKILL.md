@@ -37,8 +37,8 @@ metadata:
 ## 程序会自动做的事
 
 - **分段**：每句按“字数重量”估算时长（中文一字算 1，英文约两个字母算 1，数字按读法，逗号算半拍停顿），再除以实测语速。段数 = 总估算时长 ÷ 100 秒（向上取整），然后在新闻之间选切点，让最长的一段尽量短；每段“估算时长 + 水印约 2.7 秒”乘以 1.15 的余量后不能超过 120 秒。一条新闻本身超过上限时，才在句子之间拆开。
-- **实测语速**：每段切好后记下真实语速，存进 `outputs/_state/doubao_speech_rate.json`，下次分段取最近 10 段的中位数（还没有记录时用默认值 5.0）。
-- **去水印**：每条豆包音频的开头结构是：静音（0–0.33 秒）→ “内容由豆包AI生成”（0.33–2.25 秒）→ 至少 0.18 秒静音 → 正文。程序按 10 毫秒一帧算音量（RMS ≥300 算有声），找到第一个有声帧后，再找其后第一段 ≥0.18 秒的静音，从静音结束处开始保留。这段静音必须起于 1.6–3.0 秒之间，否则不切，自检报告会出现 `doubao_watermark` 警告。edge 的音频从不做这一步。想检查真实音频的切点：`python3 scripts/check_doubao_watermark.py 文件...`。
+- **实测语速**：每段切好后记下真实语速，存进 `outputs/_state/doubao_speech_rate.json`，下次分段取最近 10 段的中位数（还没有记录时用默认值 4.5）。
+- **去水印**：每条豆包音频的开头结构是：静音（0–0.33 秒）→ “内容由豆包AI生成”（0.33–2.25 秒，每次都是同一段固定录音）→ 0.20–0.46 秒静音 → 正文。程序按 10 毫秒一帧算音量（RMS ≥300 算有声），找到第一个有声帧后，再找其后第一段 ≥0.12 秒的静音（标签内部的停顿最长只有 0.08 秒），从静音结束处开始保留。这段静音必须起于 1.6–3.0 秒之间，否则不切，自检报告会出现 `doubao_watermark` 警告。edge 的音频从不做这一步。想检查真实音频的切点：`python3 scripts/check_doubao_watermark.py 文件...`。
 - **截断检查**：音频接近 120 秒（差不到 1 秒），或有声部分不到估算时长的一半，就认为没读完或漏读，这一段拆成两半重新请求。
 - **切句**：在整段音频里找停顿，用动态规划按每句的预估长度选切点，切在停顿正中间，每句再检查语速是否合理（相对整段平均在 0.55–1.8 倍之间）。切不开时先放宽停顿长度重试一次，还不行就对半拆开重新请求，已切好的部分不受影响。切点、语速比、水印结果写在 `tts_manifest.json` 各段的 `split` / `watermark` 字段里，请求次数写在 `voice_manifest.json` 的 `doubao_takes` 字段里。
 - **保留自然停顿**：切出来的每句都带着它那一半停顿，`voice_manifest.json` 记下每句开头和结尾的静音（`lead` / `tail`）。时间轴把同一段、同一条新闻里的句子原样拼回去，不再插入停顿；新闻之间如果原有停顿不足 0.40 秒（钩子之后 0.30 秒）就补足，只延长，不缩短。
@@ -49,7 +49,7 @@ metadata:
 ## 可调参数（`ai_morning_brief/config.py`）
 
 - 每段目标时长：`DOUBAO_TAKE_TARGET_SECONDS`（默认 100，环境变量 `AI_DAILY_DOUBAO_TAKE_SECONDS`）；单次上限 `DOUBAO_TAKE_MAX_SECONDS`（120），余量 `DOUBAO_TAKE_SAFETY`（1.15）。
-- 默认语速：`DOUBAO_SPEECH_RATE_DEFAULT`（5.0）。
-- 水印：`DOUBAO_WATERMARK_RMS_THRESHOLD`（300）、`DOUBAO_WATERMARK_MIN_GAP`（0.18 秒）、`DOUBAO_WATERMARK_WINDOW`（1.6–3.0 秒）。
+- 默认语速：`DOUBAO_SPEECH_RATE_DEFAULT`（4.5）。
+- 水印：`DOUBAO_WATERMARK_RMS_THRESHOLD`（300）、`DOUBAO_WATERMARK_MIN_GAP`（0.12 秒）、`DOUBAO_WATERMARK_WINDOW`（1.6–3.0 秒）。
 - 限流后的等待时间：`DOUBAO_RATE_LIMIT_WAIT_SECONDS`（默认 10）。
 - 更换音色：改 `DOUBAO_TTS_VOICE_PROFILE`。

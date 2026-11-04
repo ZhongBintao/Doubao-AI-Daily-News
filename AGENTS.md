@@ -63,8 +63,8 @@ report     汇总
 ## 配音契约
 
 - 最终仍是逐句一个音频文件，画面、卡片高亮、字幕按句对齐。豆包（见 `ai-brief-doubao-voice`）只用 `text_to_audio_plus` + 固定动漫少女音色描述（`DOUBAO_TTS_VOICE_PROFILE`），**自然语速，任何环节都不变速**；声音克隆模式已取消。豆包读原文（英文、阿拉伯数字照原样），不做读法改写。
-- **长录音分段**（`voice.plan_takes`）：一次请求最多约 120 秒，长录音音色更稳，所以整期分成尽量少的几段（`artifacts/tts_manifest.json` 的 `takes` / `todo`）。只在新闻之间切开，钩子随第一条头条、结尾随最后一条；段数 = 估算时长 ÷ 100 秒向上取整，再均衡分配（最长段尽量短），每段（估算 + 水印 2.7 秒）× 1.15 ≤ 120 秒。估算用 `voice.sentence_weight` ÷ 实测语速（`outputs/_state/doubao_speech_rate.json`，近 10 段中位数；默认 5.0）。段内新闻之间加换行。
-- **去水印**（`voice.watermark_scan`）：每条豆包音频开头是“静音（0–0.33 s）→ 内容由豆包AI生成（0.33–2.25 s）→ ≥0.18 s 静音 → 正文”。按同事在真实音频上总结的规则：10 ms 帧算 RMS，≥300（16 位）为有声；找第一个有声帧，再找其后第一段 ≥0.18 s 的连续静音，静音结束处就是正文开头。另加一道安全检查：这段静音必须起于 1.6–3.0 s，否则不切并在自检中警告。只用于豆包，edge 音频不做。真实音频可用 `python3 scripts/check_doubao_watermark.py 文件...` 检查切点。
+- **长录音分段**（`voice.plan_takes`）：一次请求最多约 120 秒，长录音音色更稳，所以整期分成尽量少的几段（`artifacts/tts_manifest.json` 的 `takes` / `todo`）。只在新闻之间切开，钩子随第一条头条、结尾随最后一条；段数 = 估算时长 ÷ 100 秒向上取整，再均衡分配（最长段尽量短），每段（估算 + 水印 2.7 秒）× 1.15 ≤ 120 秒。估算用 `voice.sentence_weight` ÷ 实测语速（`outputs/_state/doubao_speech_rate.json`，近 10 段中位数；默认 4.5，两段真实录音实测 4.46 / 6.22）。段内新闻之间加换行。
+- **去水印**（`voice.watermark_scan`）：每条豆包音频开头是“静音（0–0.33 s）→ 内容由豆包AI生成（0.33–2.25 s，固定录音，内部停顿最长 0.08 s）→ 0.20–0.46 s 静音 → 正文”。按同事在真实音频上总结的规则：10 ms 帧算 RMS，≥300（16 位）为有声；找第一个有声帧，再找其后第一段 ≥0.12 s 的连续静音（同事定的 0.18 s 在一段实测音频上只有 0.02 s 余量），静音结束处就是正文开头。另加一道安全检查：这段静音必须起于 1.6–3.0 s，否则不切并在自检中警告。只用于豆包，edge 音频不做。真实音频可用 `python3 scripts/check_doubao_watermark.py 文件...` 检查切点。
 - **切回单句**（`voice.prepare_doubao` → `cut_take` → `split_batch`）：在停顿正中切开（动态规划按每句预估长度选停顿 + 语速检查）。切不开、接近 120 秒（可能截断）或有声部分不到估算一半（可能漏读）时，该段拆成两半（尽量在新闻之间）重新请求，直到单句。
 - `finalize` 统一转 48 kHz 单声道 WAV、写 `artifacts/alignments/*.json`。edge 每句精确裁掉首尾静音；豆包切出的句子保留各自那一半自然停顿，并记录首尾静音 `lead` / `tail`。
 - `display_text`（字幕/画面）与 `spoken_text`（TTS）分离；`writing.normalize_with_ledger` 是 edge 的读法标准化入口，豆包直接读 `display_text`（`voice.spoken_for`）。

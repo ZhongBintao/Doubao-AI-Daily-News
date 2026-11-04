@@ -228,7 +228,7 @@ class DoubaoTakeTests(unittest.TestCase):
         cut = voice.watermark_cut(samples) / voice.SAMPLE_RATE
         self.assertTrue(2.5 <= cut <= 2.6, cut)
 
-    def test_colleague_rule_rms_300_and_first_pause_of_018s(self):
+    def test_colleague_rule_rms_300_and_first_pause_after_the_tag(self):
         import math
         from array import array
         from ai_morning_brief import voice
@@ -244,8 +244,14 @@ class DoubaoTakeTests(unittest.TestCase):
         self.assertAlmostEqual(scan["onset_seconds"], 0.0, places=2)
         self.assertAlmostEqual(scan["pause_start_seconds"], 2.25, delta=0.011)
         self.assertAlmostEqual(scan["cut"] / rate, 2.45, delta=0.011, msg="the text starts where the pause ends")
-        # a 0.17 s pause is too short to end the tag
-        short = array("h", tone(0.33, 0) + tone(1.92, 7000) + tone(0.17, 0) + tone(3.0, 7000))
+        # the real tag (two Doubao takes): inner pauses up to 0.08 s at 0.99 / 1.22 / 2.04 s, then 0.20 s after it
+        real = array("h", tone(0.33, 0) + tone(0.66, 7000) + tone(0.08, 0) + tone(0.15, 7000) + tone(0.05, 0)
+                     + tone(0.77, 7000) + tone(0.06, 0) + tone(0.15, 7000) + tone(0.20, 0) + tone(3.0, 7000))
+        scan = voice.watermark_scan(real)
+        self.assertAlmostEqual(scan["pause_start_seconds"], 2.25, delta=0.011)
+        self.assertAlmostEqual(scan["cut"] / rate, 2.45, delta=0.011)
+        # a pause shorter than MIN_GAP (like the ones inside the tag) does not end it
+        short = array("h", tone(0.33, 0) + tone(1.92, 7000) + tone(0.10, 0) + tone(3.0, 7000))
         self.assertIsNone(voice.watermark_cut(short))
 
     def test_audio_without_the_tag_is_never_trimmed(self):

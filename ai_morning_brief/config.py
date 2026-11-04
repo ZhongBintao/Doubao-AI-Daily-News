@@ -235,18 +235,21 @@ DOUBAO_RATE_LIMIT_WAIT_SECONDS = 10
 # Speaking rate in sentence-weight units per second (a Han character = 1, see voice.sentence_weight),
 # natural pauses inside a take included. Measured on every finished take and kept in
 # outputs/_state/doubao_speech_rate.json (median of the last DOUBAO_RATE_HISTORY takes); this default is
-# used until then (2026-11-04 edition: ~5.3 without pauses).
-DOUBAO_SPEECH_RATE_DEFAULT = 5.0
+# used until then. Two real Doubao takes (2026-11-04) measured 4.46 and 6.22; the default sits near the
+# slow one so a first-run estimate never runs a take past 120 s.
+DOUBAO_SPEECH_RATE_DEFAULT = 4.5
 DOUBAO_RATE_HISTORY = 10
 DOUBAO_RATE_BOUNDS = (3.0, 9.0)       # a measurement outside this range is ignored
 # Every Doubao answer starts with a fixed spoken tag "内容由豆包AI生成": silence (0-0.33 s), the tag
-# (0.33-2.25 s), a pause of at least 0.18 s, then the text. Rule measured on real Doubao audio (colleague,
+# (0.33-2.25 s), a pause (colleague: >= 0.18 s), then the text. Rule measured on real Doubao audio (colleague,
 # 2026-11-04): 10 ms frames, RMS >= 300 (16-bit) is voice; find the first voiced frame, then the first run
 # of silence >= MIN_GAP after it; the text starts where that run ends. Safety check on top: that pause must
-# start inside WINDOW, otherwise nothing is cut and selfcheck warns.
+# start inside WINDOW, otherwise nothing is cut and selfcheck warns. Two real takes: the tag is one fixed
+# recording (identical in both), its longest inner pause is 0.08 s and the pause after it 0.20 / 0.27 s, so
+# MIN_GAP is 0.12 s (the measured 0.18 s left only 0.02 s of margin).
 DOUBAO_WATERMARK_RMS_THRESHOLD = 300
 DOUBAO_WATERMARK_WINDOW = (1.6, 3.0)  # seconds from the start of the answer where the tag may end
-DOUBAO_WATERMARK_MIN_GAP = 0.18
+DOUBAO_WATERMARK_MIN_GAP = 0.12
 DOUBAO_WATERMARK_SECONDS = 2.7        # tag + pauses, used in the take-length estimate
 # Optional hard stop: an edition with fewer stories than this is not produced (0 = off, CLI --min-stories).
 MIN_STORIES = int(os.environ.get("AI_DAILY_MIN_STORIES", "0"))
