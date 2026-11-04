@@ -199,7 +199,7 @@ class RenderMarkupTests(unittest.TestCase):
                  "cards": [{"label": "实测", "headline": "涨到 6 倍", "body": "从 7.9 升至 【48.1】"}], "progress": {"role": "头条", "index": 1, "total": 2}}
         markup = render.scene_markup(scene, RUN_DATE, {})
         self.assertIn('data-card="1"', markup)
-        self.assertIn('<span class="hl">48.1</span>', markup)
+        self.assertIn("<span class=\"hl\">48.1</span>", markup)
         self.assertIn('class="more"', markup)
 
     def test_card_icons_follow_labels_and_flash_has_two_cards(self):
@@ -294,13 +294,6 @@ class OrchestratorTests(unittest.TestCase):
             final = json.loads((run.art / "director_final.json").read_text(encoding="utf-8"))
             self.assertEqual([u["spoken_text"] for u in manifest["units"]], [u["display_text"] for u in final["units"]],
                              "Doubao reads the raw sentence: no 'G P T' spelling, no Chinese numerals")
-            # Rate limits: a few whole-paragraph requests, not one request per sentence.
-            self.assertTrue(manifest["todo"] and all(t["kind"] == "batch" for t in manifest["todo"]))
-            self.assertLess(len(manifest["todo"]), len(manifest["units"]))
-            self.assertEqual([u for b in manifest["batches"] for u in b["unit_ids"]], [u["unit_id"] for u in manifest["units"]])
-            for batch in manifest["batches"]:
-                self.assertIn(C.DOUBAO_TTS_VOICE_PROFILE, batch["request"])
-                self.assertIn(batch["spoken_text"], batch["request"])
 
     def test_doubao_voice_clone_mode_keeps_reference_audio(self):
         from ai_morning_brief import voice
@@ -312,19 +305,22 @@ class OrchestratorTests(unittest.TestCase):
             edge = voice.build_manifest(Path(tmp), final, "edge")
             self.assertEqual(edge["units"][0]["spoken_text"], "G P T 六。")
 
-    def test_text_to_audio_sentences_are_sped_up_pitch_preserved(self):
+    def test_text_to_audio_chunk_is_finalized_at_natural_speed(self):
         import math
         from array import array
         from ai_morning_brief import voice
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
-            final = {"units": [{"unit_id": "u01", "scene_id": "hook", "spoken_text": "一句话。", "display_text": "一句话。"}]}
+            final = {"scenes": [{"scene_id": "hook", "kind": "hook"}],
+                     "units": [{"unit_id": "u01", "scene_id": "hook", "spoken_text": "一句话。", "display_text": "一句话。"}]}
             manifest = voice.build_manifest(run_dir, final, "doubao", mode="text-to-audio")
+            self.assertTrue(manifest["chunked"], "text-to-audio is chunked by default")
             tone = array("h", (int(8000 * math.sin(2 * math.pi * 220 * i / voice.SAMPLE_RATE)) for i in range(voice.SAMPLE_RATE * 2)))
-            voice.write_wav(Path(manifest["units"][0]["output_path"]), tone)
+            voice.write_wav(Path(manifest["chunks"][0]["output_path"]), tone)
             result = voice.finalize(run_dir, manifest)
-            self.assertAlmostEqual(result["units"][0]["duration"], 2.0 / C.DOUBAO_TEMPO["text-to-audio"], delta=0.08)
-            self.assertEqual(result["tempo"], C.DOUBAO_TEMPO["text-to-audio"])
+            self.assertAlmostEqual(result["units"][0]["duration"], 2.0, delta=0.08)
+            self.assertEqual(result["tempo"], 1.0)
+            self.assertEqual(result["units"][0]["alignment"], "word-level")
 
     def test_min_stories_stops_cleanly(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -334,141 +330,21 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(state["stages"]["fetch"]["status"], "stopped")
             self.assertIn("少于要求的 99 条", state["stages"]["fetch"]["error"])
 
-    def test_rebuilt_manifest_drops_audio_of_changed_sentences(self):
+    def test_rebuilt_manifest_drops_chunk_of_changed_sentence(self):
         from ai_morning_brief import voice
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
-            final = {"units": [{"unit_id": "u01", "scene_id": "hook", "spoken_text": "旧句子。", "display_text": "旧句子。"},
+            final = {"scenes": [{"scene_id": "hook", "kind": "hook"}, {"scene_id": "outro", "kind": "outro"}],
+                     "units": [{"unit_id": "u01", "scene_id": "hook", "spoken_text": "旧句子。", "display_text": "旧句子。"},
                                {"unit_id": "u02", "scene_id": "outro", "spoken_text": "不变。", "display_text": "不变。"}]}
             manifest = voice.build_manifest(run_dir, final, "doubao")
-            for unit in manifest["units"]:
-                Path(unit["output_path"]).parent.mkdir(parents=True, exist_ok=True)
-                Path(unit["output_path"]).write_bytes(b"audio")
+            for chunk in manifest["chunks"]:
+                Path(chunk["output_path"]).parent.mkdir(parents=True, exist_ok=True)
+                Path(chunk["output_path"]).write_bytes(b"audio")
             final["units"][0]["spoken_text"] = final["units"][0]["display_text"] = "新句子。"
             manifest = voice.build_manifest(run_dir, final, "doubao")
-            self.assertEqual(voice.missing_units(manifest), ["u01"])
-
-    # -- Doubao batches: few requests, cut back into sentences ---------------------------
-    @staticmethod
-    def _speech_like(sentences, *, word_gap=0.07, comma_gap=0.30, sentence_gap=0.45, per_unit=0.16, flat=False):
-        """Tone bursts shaped like speech: words, comma pauses and sentence pauses. Returns samples and true gap spans."""
-        import math
-        from array import array
-        from ai_morning_brief import voice
-        rate = voice.SAMPLE_RATE
-        out, gaps = array("h"), []
-
-        def tone(seconds, freq=210):
-            out.extend(int(7000 * math.sin(2 * math.pi * freq * i / rate)) for i in range(int(seconds * rate)))
-
-        def silence(seconds):
-            out.extend([0] * int(seconds * rate))
-
-        silence(0.2)
-        for index, text in enumerate(sentences):
-            for c, clause in enumerate(text.rstrip("。").split("，")):
-                if c:
-                    (tone if flat else silence)(comma_gap)
-                for w in range(0, len(clause), 2):
-                    if w:
-                        (tone if flat else silence)(word_gap)
-                    tone(per_unit * len(clause[w:w + 2]), 180 + 40 * (w % 3))
-            if index < len(sentences) - 1:
-                start = len(out) / rate
-                (tone if flat else silence)(sentence_gap)
-                gaps.append((start, len(out) / rate))
-        silence(0.3)
-        return out, gaps
-
-    def test_doubao_batches_pack_whole_stories_under_the_cap(self):
-        from ai_morning_brief import voice
-        units = ([{"unit_id": "u01", "scene_id": "hook", "spoken_text": "钩" * 20}]
-                 + [{"unit_id": f"u{i:02d}", "scene_id": "story-01", "spoken_text": "头" * 40} for i in range(2, 9)]
-                 + [{"unit_id": f"u{i:02d}", "scene_id": f"story-0{i - 7}", "spoken_text": "快" * 50} for i in range(9, 12)]
-                 + [{"unit_id": "u12", "scene_id": "outro", "spoken_text": "关" * 15}])
-        batches = voice.plan_batches(units, max_chars=300, min_tail=40)
-        self.assertEqual(batches, [["u01", "u02", "u03", "u04", "u05", "u06", "u07", "u08"], ["u09", "u10", "u11", "u12"]],
-                         "hook joins the first story; the 15-character outro does not cost a request of its own")
-        big = [{"unit_id": f"u{i:02d}", "scene_id": "story-01", "spoken_text": "长" * 40} for i in range(1, 11)]
-        parts = voice.plan_batches(big, max_chars=300, min_tail=40)
-        self.assertEqual([len(p) for p in parts], [5, 5], "an over-long story is split into balanced parts at sentence ends")
-
-    def test_doubao_batch_is_cut_back_into_sentences(self):
-        from ai_morning_brief import voice
-        sentences = ["OpenAI 说，ChatGPT 的搜索量已相当于 Google 的 20%。", "作为参照，Bing 的份额约 3%。",
-                     "周活从十亿涨到了十二亿，用了两个月。", "整个过程不需要接触模型权重。", "关注我，每天看懂 AI 大事。"]
-        samples, gaps = self._speech_like(sentences)
-        cut = voice.split_batch(samples, sentences)
-        self.assertIsNotNone(cut)
-        for (start, end), (gap_start, gap_end) in zip(cut["ranges"][:-1], gaps):
-            self.assertTrue(gap_start <= end / voice.SAMPLE_RATE <= gap_end, (end / voice.SAMPLE_RATE, gap_start, gap_end))
-
-    def test_doubao_batches_split_then_finalize(self):
-        from ai_morning_brief import voice
-        with tempfile.TemporaryDirectory() as tmp:
-            run_dir = Path(tmp)
-            texts = ["第一条头条讲了一件大事。", "它的关键数字是十二亿，很惊人。", "关注我，每天看懂大事。"]
-            final = {"units": [{"unit_id": f"u0{i + 1}", "scene_id": "story-01", "spoken_text": t, "display_text": t} for i, t in enumerate(texts)]}
-            manifest = voice.build_manifest(run_dir, final, "doubao", mode="voice-clone")
-            self.assertEqual([t["id"] for t in manifest["todo"]], ["b01"])
-            self.assertIn("第一条头条讲了一件大事。它的关键数字", manifest["todo"][0]["request"])
-            samples, _ = self._speech_like(texts)
-            voice.write_wav(Path(manifest["batches"][0]["output_path"]), samples)
-            path = run_dir / "artifacts" / "tts_manifest.json"
-            self.assertEqual(voice.prepare_doubao(run_dir, path, manifest), [])
-            self.assertEqual(voice.missing_units(manifest), [])
-            result = voice.finalize(run_dir, manifest)
-            self.assertEqual(len(result["units"]), 3)
-            self.assertEqual(result["doubao_requests"]["requests"], 1)
-            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["batches"][0]["split"]["status"], "ok")
-
-    def test_doubao_batch_without_pauses_falls_back_to_sentences(self):
-        from ai_morning_brief import voice
-        with tempfile.TemporaryDirectory() as tmp:
-            run_dir = Path(tmp)
-            texts = ["第一句话比较长一些。", "第二句。", "第三句话也不短。"]
-            final = {"units": [{"unit_id": f"u0{i + 1}", "scene_id": "story-01", "spoken_text": t, "display_text": t} for i, t in enumerate(texts)]}
-            manifest = voice.build_manifest(run_dir, final, "doubao")
-            samples, _ = self._speech_like(texts, flat=True)
-            voice.write_wav(Path(manifest["batches"][0]["output_path"]), samples)
-            path = run_dir / "artifacts" / "tts_manifest.json"
-            todo = voice.prepare_doubao(run_dir, path, manifest)
-            self.assertEqual([(t["id"], t["kind"]) for t in todo], [("u01", "sentence"), ("u02", "sentence"), ("u03", "sentence")])
-            self.assertIn("第二句。", todo[1]["request"])
-            # The fallback survives a manifest rebuild while the text is unchanged.
-            again = voice.build_manifest(run_dir, final, "doubao")
-            self.assertEqual([t["id"] for t in again["todo"]], ["u01", "u02", "u03"])
-
-    def test_doubao_resume_keeps_finished_sentences(self):
-        from ai_morning_brief import voice
-        with tempfile.TemporaryDirectory() as tmp:
-            run_dir = Path(tmp)
-            final = {"units": [{"unit_id": "u01", "scene_id": "story-01", "spoken_text": "甲" * 200, "display_text": "甲" * 200},
-                               {"unit_id": "u02", "scene_id": "story-02", "spoken_text": "乙" * 200, "display_text": "乙" * 200}]}
-            manifest = voice.build_manifest(run_dir, final, "doubao")
-            self.assertEqual([t["id"] for t in manifest["todo"]], ["b01"], "the whole edition is one request by default")
-            self.assertEqual(manifest["batches"][0]["unit_ids"], ["u01", "u02"])
-            # Sentences already synthesised (an older, interrupted run) are kept, not asked again.
-            Path(manifest["units"][0]["output_path"]).parent.mkdir(parents=True, exist_ok=True)
-            Path(manifest["units"][0]["output_path"]).write_bytes(b"audio")
-            again = voice.build_manifest(run_dir, final, "doubao")
-            self.assertEqual([(t["id"], again["batches"][0]["unit_ids"]) for t in again["todo"]], [("b01", ["u02"])])
-
-    def test_doubao_whole_edition_that_cannot_be_cut_is_asked_in_smaller_batches(self):
-        from ai_morning_brief import voice
-        with tempfile.TemporaryDirectory() as tmp:
-            run_dir = Path(tmp)
-            final = {"units": [{"unit_id": f"u{i:02d}", "scene_id": f"story-0{i // 4 + 1}", "spoken_text": "句" * 60 + "。", "display_text": "句" * 60 + "。"}
-                               for i in range(1, 11)]}
-            manifest = voice.build_manifest(run_dir, final, "doubao")
-            self.assertEqual([t["id"] for t in manifest["todo"]], ["b01"])
-            samples, _ = self._speech_like([u["spoken_text"] for u in final["units"]], flat=True)
-            voice.write_wav(Path(manifest["batches"][0]["output_path"]), samples)
-            todo = voice.prepare_doubao(run_dir, run_dir / "artifacts" / "tts_manifest.json", manifest)
-            self.assertTrue(all(t["kind"] == "batch" and t["chars"] <= C.DOUBAO_BATCH_FALLBACK_CHARS for t in todo), todo)
-            self.assertTrue(1 < len(todo) < 10, "smaller batches, not one request per sentence")
-            self.assertEqual([u for t in todo for u in manifest["batches"][[b["batch_id"] for b in manifest["batches"]].index(t["id"])]["unit_ids"]],
-                             [u["unit_id"] for u in final["units"]])
+            self.assertEqual(voice.missing_chunks(manifest), ["c01"],
+                             "changing one sentence invalidates the whole chunk that contains it")
 
     def test_status_and_check_plan_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -506,7 +382,7 @@ class MaterialPackTests(unittest.TestCase):
             self.assertNotIn("original", json.dumps(cluster["pack"], ensure_ascii=False), "original article links are never part of a pack")
 
     def test_one_storyline_is_merged_into_one_event(self):
-        anthropic = [c for c in self.selection["pool"] if "Anthropic" in c["lead"]["title"] and ("S-1" in " ".join(c["member_titles"]) or "$895" in c["lead"]["title"])]
+        anthropic = [c for c in self.selection["clusters"] if "Anthropic" in c["lead"]["title"] and ("S-1" in " ".join(c["member_titles"]) or "$895" in c["lead"]["title"])]
         self.assertEqual(len(anthropic), 1)
         self.assertGreaterEqual(len(anthropic[0]["member_ids"]), 3)
 
@@ -547,8 +423,8 @@ class MaterialPackTests(unittest.TestCase):
             return k
         head = cluster("h", 95, "rich")
         thins = [cluster(f"t{i}", 84, "thin") for i in range(5)]
-        rich = cluster("r", 80, "rich")      # 4 points below, but far more material
-        far = cluster("f", 77, "rich")       # 7 points below: heat still wins
+        rich = cluster("r", 80, "rich")       # 4 points below, but far more material
+        far = cluster("f", 77, "rich")        # 7 points below: heat still wins
         rundown = newsroom.plan_rundown([head, *thins, rich, far])
         keys = [k.key for k in rundown["flashes"]]
         self.assertIn("r", keys)
