@@ -236,7 +236,7 @@ def _edge_ssl_context() -> ssl.SSLContext | None:
 
 
 async def _edge_one(text: str, out_path: Path, voice: str, rate: str) -> list[dict[str, Any]]:
-    import edge_tts
+    import edge_tts  # optional dependency, installed by bootstrap
     import edge_tts.communicate as communicate
 
     context = _edge_ssl_context()
