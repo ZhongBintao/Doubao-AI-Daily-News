@@ -45,14 +45,15 @@ $PY -m ai_morning_brief.daily --date $DAY --min-stories 3
 4. 校验：`$PY -m ai_morning_brief.daily --date $DAY --check-plan`，按报错改，最多 2 次。
 5. 重新运行第 1 步的命令。校验仍失败也重新运行——程序会自动改用兜底稿。
 
-## 第 3 步（交接：voice 逐句配音）
+## 第 3 步（交接：voice 配音，整段请求）
 
 1. 打开 `outputs/$DAY/artifacts/tts_manifest.json`，详细要求见 `skills/ai-brief-doubao-voice/SKILL.md`。
-2. 对 `units` 里**每一条**（每条一句）：
-   - 调用 `text_to_audio_plus`，请求为：`"{doubao.voice}"。朗读以下文字："{该条 spoken_text}"`（音色描述逐字使用清单里的固定文案）
-   - `spoken_text` 是原文：GPU、RSA-260、552B 等英文和阿拉伯数字**照原样读**，不拆单字母、不念中文数字、不增删字词；不要在请求里要求语速（程序统一加速）
-   - 保存到该条 `output_path`。**每条一句，不要合并。**
-3. 全部保存后重新运行第 1 步的命令。
+2. 对 **`todo`** 里每一条（通常只有 3–5 条，每条是几句话连读的一整段，≤300 字），**按顺序一次只发一条**：
+   - 调用 `text_to_audio_plus`，把该条 `request` **原样**发送（已填好固定音色描述和原文：`"{音色描述}"。朗读以下文字："{这一段原文}"`）
+   - 原文里 GPU、RSA-260、552B 等英文和阿拉伯数字**照原样读**，不拆单字母、不念中文数字、不增删字词；不要拆开或合并段落；不要在请求里要求语速（程序统一加速）
+   - 保存到该条 `output_path`
+   - 遇到“合成太频繁”等限流报错：**等 10 秒再重试同一条**，最多 3 次；不要并发
+3. 全部保存后重新运行第 1 步的命令，程序自动把每段切回单句。若某段没切开，会再交接一次，`todo` 里变成这一段的单句，照做后再运行。
 4. 语音工具不可用：改用 `$PY -m ai_morning_brief.daily --date $DAY --min-stories 3 --tts edge` 运行，程序自动配音。
 
 ## 第 4 步：完成通知

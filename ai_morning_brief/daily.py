@@ -232,21 +232,27 @@ def stage_voice(run: Run) -> dict[str, Any]:
     expected = [voice.spoken_for(u, provider) for u in final["units"]]
     mode = run.tts_mode if provider == "doubao" else None
     if (not manifest or manifest.get("provider") != provider or [u["spoken_text"] for u in manifest.get("units") or []] != expected
-            or (manifest.get("doubao") or {}).get("mode") != mode):
+            or (manifest.get("doubao") or {}).get("mode") != mode or (provider == "doubao" and not manifest.get("batches"))):
         manifest = voice.build_manifest(run.dir, final, provider, mode=mode)
     if provider == "edge":
         failed = voice.synthesize_edge(run.dir, manifest)
         if failed:
             raise RuntimeError(f"edge-tts 合成失败：{', '.join(failed)}（检查网络/代理）")
     else:
-        missing = voice.missing_units(manifest)
-        if missing:
+        todo = voice.prepare_doubao(run.dir, manifest_path, manifest)
+        if todo:
             tool = (manifest.get("doubao") or {}).get("tool", "")
-            how = (f"每条调用 text_to_audio_plus，请求：\"{C.DOUBAO_TTS_VOICE_PROFILE}\"。朗读以下文字：\"<该条 spoken_text>\"（英文和阿拉伯数字照原样读）"
-                   if tool == "text_to_audio_plus" else "每条调用 audio_to_audio_plus，@音频1 = example-audio.mp3，prompt 见 doubao.prompt_template")
-            _print_handoff("voice", [f"读取配音清单：{manifest_path}", how, "每条一句，保存到该条 output_path；按 doubao.instructions 执行。",
-                                     f"还缺 {len(missing)} 条：{', '.join(missing)}",
-                                     "豆包配音不可用时：加 --tts edge 重新运行，自动改用 edge-tts。"])
+            batches = sum(1 for t in todo if t["kind"] == "batch")
+            sentences = len(todo) - batches
+            how = ("调用 text_to_audio_plus，请求 = 该条 request（固定音色描述 + 原文，已填好，原样发送）"
+                   if tool == "text_to_audio_plus" else "调用 audio_to_audio_plus，@音频1 = example-audio.mp3，prompt = 该条 request")
+            lines = [f"读取配音清单：{manifest_path}，逐条处理 todo（共 {len(todo)} 次请求）。", how,
+                     f"保存到该条 output_path。一次只发一条，不要并发；遇到“合成太频繁”等 {C.DOUBAO_RATE_LIMIT_WAIT_SECONDS} 秒再重试同一条（最多 3 次）。",
+                     "一条 todo 是几句话连读的一整段，不要拆开或合并；英文和阿拉伯数字照原样读。程序会自动切回单句。"]
+            if sentences:
+                lines.append(f"其中 {sentences} 条是单句（有一段整段音频没能自动切开，这一段改为逐句请求）。")
+            lines += [f"待处理：{', '.join(t['id'] for t in todo)}", "豆包配音不可用时：加 --tts edge 重新运行，自动改用 edge-tts。"]
+            _print_handoff("voice", lines)
             raise Handoff("voice")
     result = voice.finalize(run.dir, manifest)
     return {"provider": provider, "units": len(result["units"]), "speech_seconds": result["total_speech_seconds"]}

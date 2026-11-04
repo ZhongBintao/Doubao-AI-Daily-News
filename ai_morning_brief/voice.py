@@ -1,15 +1,20 @@
-"""v6 per-sentence narration audio.
+"""v6 narration audio: one audio file per sentence, few TTS requests.
 
-Every narration unit (one sentence) is one audio file. Two providers:
+Every narration unit (one sentence) ends up as one audio file, so pictures,
+card highlights and captions follow the voice sentence by sentence. Two providers:
 
-* ``doubao`` — agent handoff, one call per sentence (see the voice skill):
-  ``text-to-audio`` (default) uses ``text_to_audio_plus`` with the fixed voice
-  profile; ``voice-clone`` uses ``audio_to_audio_plus`` with ``example-audio.mp3``.
-  Doubao gets the raw sentence (it reads English and numerals itself); the
-  text-to-audio voice is sped up by ``DOUBAO_TEMPO`` (pitch preserved) at
-  finalize. Timing inside a sentence is proportional (sentences are short).
-* ``edge``   — automatic Microsoft Edge neural TTS (no key). Provides native
-  word boundaries. Also the automatic fallback when no agent is available.
+* ``doubao`` — agent handoff (see the voice skill): ``text-to-audio`` (default)
+  uses ``text_to_audio_plus`` with the fixed voice profile; ``voice-clone`` uses
+  ``audio_to_audio_plus`` with ``example-audio.mp3``. Doubao rate-limits many
+  small calls, so consecutive sentences are read in one request (a *batch*,
+  whole stories where possible, <= ``DOUBAO_BATCH_MAX_CHARS``) and
+  :func:`prepare_doubao` cuts each answer back into sentences at its pauses.
+  A batch that cannot be cut cleanly is asked again one sentence per request
+  (that batch only). Doubao gets the raw sentence (it reads English and
+  numerals itself); the text-to-audio voice is sped up by ``DOUBAO_TEMPO``
+  (pitch preserved) at finalize. Timing inside a sentence is proportional.
+* ``edge``   — automatic Microsoft Edge neural TTS (no key), one call per
+  sentence with native word boundaries. Also the automatic fallback.
 
 ``finalize`` converts every unit to 48 kHz mono WAV, trims leading/trailing
 silence exactly, and writes per-unit word timings to ``alignments/``.
@@ -18,7 +23,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
+import re
 import ssl
 import subprocess
 import time
@@ -58,19 +65,75 @@ def doubao_mode(mode: str | None = None) -> str:
 
 
 def _doubao_block(mode: str, reference: Path) -> dict[str, Any]:
+    wait = C.DOUBAO_RATE_LIMIT_WAIT_SECONDS
+    common = (f"逐条处理 todo（只有还缺的音频）：把该条 request 原样发给工具，保存到该条 output_path。"
+              f"一次只发一条，不要并发；遇到“合成太频繁”等限流报错，等 {wait} 秒再重试同一条（最多 3 次）。"
+              "一条 todo 是一整段（几句话连读），不要拆开、不要合并、不增删字词；英文和阿拉伯数字（GPU、RSA-260、552B）照原样读。"
+              "程序会自动把整段切回单句。")
     if mode == "voice-clone":
         return {
             "mode": mode, "tool": "audio_to_audio_plus", "reference_audio": str(reference), "prompt_template": DOUBAO_PROMPT,
             "tempo": C.DOUBAO_TEMPO[mode],
-            "instructions": "逐条处理 units：用 audio_to_audio_plus，@音频1 = reference_audio，prompt = prompt_template（把 {spoken_text} 换成该条 spoken_text），保存到该条 output_path。每条只读一句，不要合并。",
+            "instructions": "用 audio_to_audio_plus，@音频1 = reference_audio，prompt = 该条 request。" + common,
         }
     return {
         "mode": mode, "tool": "text_to_audio_plus", "voice": C.DOUBAO_TTS_VOICE_PROFILE, "request_template": C.DOUBAO_TTS_REQUEST,
         "tempo": C.DOUBAO_TEMPO[mode],
-        "instructions": ("逐条处理 units：调用 text_to_audio_plus，请求 = request_template（{voice} 换成 voice 字段的固定音色描述，逐字使用；"
-                         "{spoken_text} 换成该条 spoken_text 原文），保存到该条 output_path。spoken_text 里的英文和阿拉伯数字（GPU、RSA-260、552B）"
-                         "照原样读，不拆单字母、不念成中文数字、不增删字词。每条只读一句，不要合并；语速由程序统一加速，不要在请求里要求语速。"),
+        "instructions": "用 text_to_audio_plus，请求 = 该条 request（已按 request_template 填好固定音色描述和原文）。" + common
+                        + "语速由程序统一加速，不要在请求里要求语速。",
     }
+
+
+def _visible_len(text: str) -> int:
+    return sum(1 for ch in text if not ch.isspace())
+
+
+def _doubao_request(block: Mapping[str, Any], text: str) -> str:
+    if block.get("tool") == "audio_to_audio_plus":
+        return str(block["prompt_template"]).replace("{spoken_text}", text)
+    return str(block["request_template"]).replace("{voice}", str(block["voice"])).replace("{spoken_text}", text)
+
+
+def plan_batches(units: list[Mapping[str, Any]], *, max_chars: int | None = None, min_tail: int | None = None) -> list[list[str]]:
+    """Group consecutive sentences into Doubao requests: whole scenes packed up to ``max_chars``.
+
+    A scene longer than the cap is split at sentence boundaries into balanced parts;
+    a tail shorter than ``min_tail`` joins the previous batch.
+    """
+
+    max_chars = max_chars or C.DOUBAO_BATCH_MAX_CHARS
+    min_tail = C.DOUBAO_BATCH_MIN_TAIL if min_tail is None else min_tail
+    size = {u["unit_id"]: _visible_len(str(u["spoken_text"])) for u in units}
+    scenes: list[list[str]] = []
+    last_scene = object()
+    for unit in units:
+        if unit["scene_id"] != last_scene:
+            scenes.append([])
+            last_scene = unit["scene_id"]
+        scenes[-1].append(unit["unit_id"])
+    pieces: list[list[str]] = []
+    for scene in scenes:
+        total = sum(size[u] for u in scene)
+        if total <= max_chars:
+            pieces.append(scene)
+            continue
+        target = total / math.ceil(total / max_chars)
+        part: list[str] = []
+        for uid in scene:
+            if part and (sum(size[u] for u in part) + size[uid] > max_chars or sum(size[u] for u in part) >= target):
+                pieces.append(part)
+                part = []
+            part.append(uid)
+        pieces.append(part)
+    batches: list[list[str]] = []
+    for piece in pieces:
+        if batches and sum(size[u] for u in batches[-1]) + sum(size[u] for u in piece) <= max_chars:
+            batches[-1].extend(piece)
+        else:
+            batches.append(list(piece))
+    if len(batches) > 1 and sum(size[u] for u in batches[-1]) < min_tail:
+        batches[-2].extend(batches.pop())
+    return batches
 
 
 def build_manifest(run_dir: Path, final_plan: Mapping[str, Any], provider: str, *, mode: str | None = None) -> dict[str, Any]:
@@ -88,40 +151,264 @@ def build_manifest(run_dir: Path, final_plan: Mapping[str, Any], provider: str, 
             "output_path": str(raw_audio_path(run_dir, unit["unit_id"], ".wav" if provider == "doubao" else ".mp3")),
         })
     path = run_dir / "artifacts" / "tts_manifest.json"
-    _drop_stale_audio(run_dir, path, units)
+    previous = _read_json(path)
+    block = _doubao_block(mode, reference) if provider == "doubao" else None
+    batches: list[dict[str, Any]] = []
+    if block is not None:
+        by_id = {u["unit_id"]: u for u in units}
+        # A batch that could not be cut keeps its one-request-per-sentence fallback while its text is unchanged.
+        old_fallback = {b.get("spoken_text") for b in previous.get("batches") or [] if b.get("per_sentence")}
+        for index, ids in enumerate(plan_batches(units), start=1):
+            text = "".join(by_id[u]["spoken_text"] for u in ids)
+            batch_id = f"b{index:02d}"
+            batches.append({"batch_id": batch_id, "unit_ids": ids, "chars": _visible_len(text), "spoken_text": text,
+                            "request": _doubao_request(block, text),
+                            "output_path": str(raw_audio_path(run_dir, batch_id, ".wav")),
+                            "per_sentence": text in old_fallback})
+    _drop_stale_audio(run_dir, previous, units, batches)
     manifest = {
         "version": C.V6_VERSION,
         "provider": provider,
         "units": units,
-        "doubao": _doubao_block(mode, reference) if provider == "doubao" else None,
+        "doubao": block,
+        "batches": batches if block is not None else None,
+        "todo": [],
         "edge": {"voice": C.EDGE_TTS_VOICE, "rate": C.EDGE_TTS_RATE} if provider == "edge" else None,
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    if block is not None:
+        manifest["todo"] = doubao_todo(manifest)
+    _write_manifest(path, manifest)
     return manifest
 
 
-def _drop_stale_audio(run_dir: Path, manifest_path: Path, units: list[dict[str, Any]]) -> None:
-    """Delete audio whose sentence changed, so an edited plan never keeps its old voice-over.
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
-    Output paths are keyed by unit id (u01, u02 ...); when a sentence is rewritten
-    the old file would otherwise count as already synthesized.
+
+def _write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _drop_stale_audio(run_dir: Path, previous: Mapping[str, Any], units: list[dict[str, Any]], batches: list[dict[str, Any]] | None = None) -> None:
+    """Delete audio whose text changed, so an edited plan never keeps its old voice-over.
+
+    Output paths are keyed by id (u01 ..., b01 ...); when a sentence is rewritten
+    (or a batch is regrouped) the old file would otherwise count as already synthesized.
     """
 
-    try:
-        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        previous = {}
-    old = {str(u.get("output_path")): str(u.get("spoken_text")) for u in previous.get("units") or []}
+    old = {str(u.get("output_path")): str(u.get("spoken_text")) for u in list(previous.get("units") or []) + list(previous.get("batches") or [])}
     for unit in units:
         out = Path(unit["output_path"])
         if out.is_file() and old.get(str(out)) != unit["spoken_text"]:
             out.unlink(missing_ok=True)
             (run_dir / "artifacts" / "alignments" / f"{unit['unit_id']}.raw.json").unlink(missing_ok=True)
+    for batch in batches or []:
+        out = Path(batch["output_path"])
+        if out.is_file() and old.get(str(out)) != batch["spoken_text"]:
+            out.unlink(missing_ok=True)
+
+
+def _has_audio(path: str | Path) -> bool:
+    path = Path(path)
+    return path.is_file() and path.stat().st_size > 0
 
 
 def missing_units(manifest: Mapping[str, Any]) -> list[str]:
-    return [u["unit_id"] for u in manifest.get("units") or [] if not Path(u["output_path"]).is_file() or Path(u["output_path"]).stat().st_size == 0]
+    return [u["unit_id"] for u in manifest.get("units") or [] if not _has_audio(u["output_path"])]
+
+
+def doubao_todo(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The Doubao requests still needed: one per batch, or one per sentence for a batch that could not be cut."""
+
+    block = manifest.get("doubao") or {}
+    by_id = {u["unit_id"]: u for u in manifest.get("units") or []}
+    todo: list[dict[str, Any]] = []
+    for batch in manifest.get("batches") or []:
+        missing = [uid for uid in batch["unit_ids"] if not _has_audio(by_id[uid]["output_path"])]
+        if not missing:
+            continue
+        if batch.get("per_sentence"):
+            for uid in missing:
+                unit = by_id[uid]
+                todo.append({"id": uid, "kind": "sentence", "spoken_text": unit["spoken_text"],
+                             "request": _doubao_request(block, unit["spoken_text"]), "output_path": unit["output_path"]})
+        elif not _has_audio(batch["output_path"]):
+            todo.append({"id": batch["batch_id"], "kind": "batch", "sentences": len(batch["unit_ids"]), "chars": batch["chars"],
+                         "spoken_text": batch["spoken_text"], "request": batch["request"], "output_path": batch["output_path"]})
+    return todo
+
+
+def prepare_doubao(run_dir: Path, manifest_path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """Cut every delivered batch back into sentences; return the requests still needed (and save them as ``todo``).
+
+    A batch whose cut does not pass the checks is marked ``per_sentence``: its
+    sentences are then asked one request each (only that batch).
+    """
+
+    by_id = {u["unit_id"]: u for u in manifest.get("units") or []}
+    for batch in manifest.get("batches") or []:
+        units = [by_id[uid] for uid in batch["unit_ids"]]
+        if batch.get("per_sentence") or all(_has_audio(u["output_path"]) for u in units) or not _has_audio(batch["output_path"]):
+            continue
+        samples = decode_mono(Path(batch["output_path"]))
+        cut = split_batch(samples, [u["spoken_text"] for u in units])
+        if cut is None:
+            batch["per_sentence"] = True
+            batch["split"] = {"status": "failed"}
+            continue
+        for unit, (start, end) in zip(units, cut["ranges"]):
+            write_wav(Path(unit["output_path"]), samples[start:end])
+        batch["split"] = {"status": "ok", "method": cut["method"], "cuts_seconds": [round(r[1] / SAMPLE_RATE, 3) for r in cut["ranges"][:-1]],
+                          "speed_ratios": cut["ratios"]}
+    manifest["todo"] = doubao_todo(manifest)
+    _write_manifest(manifest_path, manifest)
+    return manifest["todo"]
+
+
+# ---------------------------------------------------------------------------
+# cutting one batch back into sentences
+# ---------------------------------------------------------------------------
+FRAME = SAMPLE_RATE // 100   # 10 ms analysis frames
+SPLIT_MIN_PAUSE = (0.12, 0.06)   # strict pass, then a looser pass
+SPLIT_SPEED_RANGE = (0.55, 1.8)  # each sentence's seconds-per-character vs the batch average
+SPLIT_GOOD_PAUSE = 0.45          # a pause this long counts as a full sentence break
+
+
+def _frame_levels(samples: array) -> list[float]:
+    levels = []
+    for start in range(0, len(samples), FRAME):
+        block = samples[start:start + FRAME]
+        peak = max(max(block), -min(block)) if block else 0
+        levels.append(20 * math.log10(max(peak, 1) / 32768))
+    return levels
+
+
+_LATIN = re.compile(r"[A-Za-z]+")
+_DIGITS = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _sentence_weight(text: str) -> float:
+    """Rough spoken length in Chinese-syllable units, used to place the expected sentence breaks.
+
+    A Chinese character is one syllable; an English word takes about one syllable per two
+    letters (Anthropic ~ 4, GPT ~ 3 letters spelled); a number is read digit by digit or as
+    a short Chinese numeral (~1 per digit); "%" adds "百分之"; a comma adds a short pause.
+    """
+
+    weight = 0.0
+    for word in _LATIN.findall(text):
+        weight += len(word) if word.isupper() and len(word) <= 4 else max(1.0, len(word) / 2)
+    for number in _DIGITS.findall(text):
+        weight += len(number.replace(".", "")) + (1 if "." in number else 0)
+    rest = _DIGITS.sub("", _LATIN.sub("", text))
+    weight += sum(1 for ch in rest if "\u4e00" <= ch <= "\u9fff")
+    weight += 3 * text.count("%") + 1.5 * sum(text.count(mark) for mark in "，、；：,;:")
+    return max(weight, 1.0)
+
+
+def _pauses(levels: list[float], threshold: float, first: int, last: int, min_frames: int) -> list[tuple[int, int]]:
+    runs, start = [], None
+    for i in range(first, last + 1):
+        quiet = levels[i] < threshold
+        if quiet and start is None:
+            start = i
+        elif not quiet and start is not None:
+            if i - start >= min_frames:
+                runs.append((start, i))
+            start = None
+    return runs
+
+
+def _choose_cuts(candidates: list[tuple[float, float]], expected: list[float], sentence_seconds: float) -> list[int] | None:
+    """Pick one pause per boundary, in order, close to its expected time and preferably long (dynamic programming)."""
+
+    k, m = len(expected), len(candidates)
+    if m < k:
+        return None
+    inf = float("inf")
+
+    def cost(b: int, j: int) -> float:
+        mid, length = candidates[j]
+        far = (mid - expected[b]) / sentence_seconds
+        return far * far + 0.6 * (1 - min(length / SPLIT_GOOD_PAUSE, 1.0))
+
+    table = [[inf] * m for _ in range(k)]
+    back = [[-1] * m for _ in range(k)]
+    for j in range(m):
+        table[0][j] = cost(0, j)
+    for b in range(1, k):
+        best, best_j = inf, -1
+        for j in range(m):
+            if j > 0 and table[b - 1][j - 1] < best:
+                best, best_j = table[b - 1][j - 1], j - 1
+            if best_j >= 0:
+                table[b][j] = best + cost(b, j)
+                back[b][j] = best_j
+    j = min(range(m), key=lambda x: table[k - 1][x])
+    if table[k - 1][j] == inf:
+        return None
+    chosen = [j]
+    for b in range(k - 1, 0, -1):
+        j = back[b][j]
+        chosen.append(j)
+    return chosen[::-1]
+
+
+def split_batch(samples: array, texts: list[str]) -> dict[str, Any] | None:
+    """Cut one batch recording into ``len(texts)`` sentences at its pauses.
+
+    Returns sample ranges per sentence (cut in the middle of each chosen pause)
+    or ``None`` when no cut passes the checks (every sentence must keep a
+    plausible speaking speed).
+    """
+
+    n = len(samples)
+    if len(texts) <= 1:
+        return {"ranges": [(0, n)], "method": "single", "ratios": [1.0]}
+    levels = _frame_levels(samples)
+    ordered = sorted(levels)
+    speech = ordered[int(len(ordered) * 0.9)]
+    floor = ordered[int(len(ordered) * 0.1)]
+    threshold = max(speech - 35.0, min(floor + 12.0, speech - 20.0))
+    voiced = [i for i, level in enumerate(levels) if level >= threshold]
+    if not voiced:
+        return None
+    first, last = voiced[0], voiced[-1]
+    weights = [_sentence_weight(t) for t in texts]
+    total_weight = sum(weights)
+    span = (last + 1 - first) * FRAME / SAMPLE_RATE
+    start_s = first * FRAME / SAMPLE_RATE
+    expected, acc = [], 0.0
+    for w in weights[:-1]:
+        acc += w
+        expected.append(start_s + span * acc / total_weight)
+    sentence_seconds = span / len(texts)
+    for method, min_pause in (("pause", SPLIT_MIN_PAUSE[0]), ("short-pause", SPLIT_MIN_PAUSE[1])):
+        runs = _pauses(levels, threshold, first, last, max(1, round(min_pause * 100)))
+        candidates = [((a + b) / 2 * FRAME / SAMPLE_RATE, (b - a) * FRAME / SAMPLE_RATE) for a, b in runs]
+        chosen = _choose_cuts(candidates, expected, sentence_seconds)
+        if chosen is None:
+            continue
+        cuts = [min(n, int(candidates[j][0] * SAMPLE_RATE)) for j in chosen]
+        ranges = list(zip([0] + cuts, cuts + [n]))
+        ratios = _speed_ratios(ranges, weights, first * FRAME, min(n, (last + 1) * FRAME))
+        if all(SPLIT_SPEED_RANGE[0] <= r <= SPLIT_SPEED_RANGE[1] for r in ratios):
+            return {"ranges": ranges, "method": method, "ratios": ratios}
+    return None
+
+
+def _speed_ratios(ranges: list[tuple[int, int]], weights: list[float], voiced_start: int, voiced_end: int) -> list[float]:
+    total = (voiced_end - voiced_start) / sum(weights)
+    out = []
+    for (start, end), weight in zip(ranges, weights):
+        length = min(end, voiced_end) - max(start, voiced_start)
+        out.append(round(max(length, 0) / weight / total, 3))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +579,17 @@ def finalize(run_dir: Path, manifest: Mapping[str, Any]) -> dict[str, Any]:
                         "spoken_text": unit["spoken_text"], "display_text": unit["display_text"]})
     result = {"version": C.V6_VERSION, "provider": manifest.get("provider"), "doubao_mode": (manifest.get("doubao") or {}).get("mode"),
               "tempo": tempo, "units": entries,
+              "doubao_requests": _request_summary(manifest),
               "total_speech_seconds": round(sum(e["duration"] for e in entries), 3)}
     (run_dir / "artifacts" / "voice_manifest.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return result
+
+
+def _request_summary(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    batches = manifest.get("batches") or []
+    if not batches:
+        return None
+    sentences = sum(len(b["unit_ids"]) for b in batches if b.get("per_sentence"))
+    return {"batches": len(batches), "per_sentence_batches": [b["batch_id"] for b in batches if b.get("per_sentence")],
+            "requests": sum(1 for b in batches if not b.get("per_sentence")) + sentences,
+            "splits": {b["batch_id"]: b.get("split") for b in batches}}

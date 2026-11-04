@@ -62,7 +62,7 @@ report     汇总
 
 ## 配音契约
 
-- 逐句一个音频文件；豆包模式按 `artifacts/tts_manifest.json` 逐条合成（见 `ai-brief-doubao-voice`）：默认 `text-to-audio` 用 `text_to_audio_plus` + 固定音色描述（`DOUBAO_TTS_VOICE_PROFILE`），每句再统一加速 1.25 倍（`DOUBAO_TEMPO`，音高不变）；`--tts-mode voice-clone` 用 `audio_to_audio_plus` + `example-audio.mp3`。豆包读原文（英文、阿拉伯数字照原样），不做读法改写。edge 模式自动合成并带逐词时间。
+- 逐句一个音频文件。豆包会限流高频请求，所以豆包模式按 `artifacts/tts_manifest.json` 的 `todo` **整段请求**：相邻几句（尽量整条新闻）合成一段，≤300 字（`DOUBAO_BATCH_MAX_CHARS`），一期约 3–5 次；`voice.prepare_doubao` 在停顿处把整段切回单句（按字数/音节估计句界位置 + 语速检查），切不开的段只对该段改为逐句请求。豆包模式（见 `ai-brief-doubao-voice`）：默认 `text-to-audio` 用 `text_to_audio_plus` + 固定音色描述（`DOUBAO_TTS_VOICE_PROFILE`），每句再统一加速 1.25 倍（`DOUBAO_TEMPO`，音高不变）；`--tts-mode voice-clone` 用 `audio_to_audio_plus` + `example-audio.mp3`。豆包读原文（英文、阿拉伯数字照原样），不做读法改写。edge 模式自动合成并带逐词时间。
 - `finalize` 统一转 48 kHz 单声道 WAV、精确裁掉首尾静音、写 `artifacts/alignments/*.json`。
 - `display_text`（字幕/画面）与 `spoken_text`（TTS）分离；`writing.normalize_with_ledger` 是 edge 的读法标准化入口，豆包直接读 `display_text`（`voice.spoken_for`）。
 - 句间停顿由程序控制：句内 0.14 s、换条 0.40 s、钩子后 0.30 s。

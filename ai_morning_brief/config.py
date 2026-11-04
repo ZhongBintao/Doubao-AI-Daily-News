@@ -226,6 +226,14 @@ DOUBAO_TTS_REQUEST = '"{voice}"。朗读以下文字："{spoken_text}"'
 # Asking the TTS to speak faster made its timbre unstable, so pace is applied afterwards: every sentence is
 # sped up with a pitch-preserving atempo before the timeline is built (pictures and captions follow the audio).
 DOUBAO_TEMPO = {"text-to-audio": float(os.environ.get("AI_DAILY_DOUBAO_TEMPO", "1.25")), "voice-clone": 1.0}
+# Doubao rate-limits many small calls ("合成太频繁"), so consecutive sentences are read in one request
+# (a "batch", whole stories where possible, at most this many characters) and the program cuts the
+# answer back into sentences at the pauses. A batch that cannot be cut cleanly falls back to one
+# request per sentence for that batch only. A tail shorter than DOUBAO_BATCH_MIN_TAIL joins the
+# previous batch even if that runs slightly over the cap (the 15-character outro is not a request of its own).
+DOUBAO_BATCH_MAX_CHARS = int(os.environ.get("AI_DAILY_DOUBAO_BATCH_CHARS", "300"))
+DOUBAO_BATCH_MIN_TAIL = 40
+DOUBAO_RATE_LIMIT_WAIT_SECONDS = 10
 # Optional hard stop: an edition with fewer stories than this is not produced (0 = off, CLI --min-stories).
 MIN_STORIES = int(os.environ.get("AI_DAILY_MIN_STORIES", "0"))
 

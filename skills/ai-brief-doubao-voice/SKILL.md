@@ -1,48 +1,49 @@
 ---
 name: ai-brief-doubao-voice
-description: Synthesize AI每日早报 v6 narration one sentence at a time with Doubao — text_to_audio_plus with the fixed voice profile (default) or audio_to_audio_plus voice cloning with example-audio.mp3. The orchestrator speeds up, trims, aligns and mixes automatically; edge-tts is the automatic fallback.
+description: Synthesize AI每日早报 v6 narration with Doubao in a few whole-paragraph requests (each ≤300 characters) — text_to_audio_plus with the fixed voice profile (default) or audio_to_audio_plus voice cloning with example-audio.mp3. The orchestrator cuts each paragraph back into sentences, speeds up, trims, aligns and mixes automatically; edge-tts is the automatic fallback.
 metadata:
   author: local-project
-  version: "4.0.0"
+  version: "5.0.0"
 ---
 
-# AI每日早报 v6 · 豆包逐句配音
+# AI每日早报 v6 · 豆包配音（整段请求，程序切句）
 
-v6 起**每句话一个音频文件**：画面切换、卡片高亮和字幕都按句精确对齐。你只负责逐条合成并保存，加速、裁剪、对齐、混音都由程序完成。
+豆包请求太频繁会报“合成太频繁”而被限流，所以**不再一句一请求**：程序把相邻的几句（尽量是一整条新闻，每段不超过 300 字）合成一条请求，一期通常只要 **3–5 次请求**。你只负责按清单逐条合成并保存，**切回单句**、加速、裁剪、对齐、混音都由程序完成。
 
 ## 什么时候需要你
 
 编排器运行到 `voice` 阶段、使用 `--tts doubao`（默认）时，会打印 AGENT HANDOFF 并退出（退出码 3）。
 
-## 步骤（默认：文生语音 `text-to-audio`）
+## 步骤
 
-1. 读 `outputs/YYYY-MM-DD/artifacts/tts_manifest.json`，确认 `doubao.tool` 是 `text_to_audio_plus`。
-2. 对 `units` 里**每一条**（每条只有一句）：
-   - 工具：`text_to_audio_plus`
-   - 请求：`"{doubao.voice}"。朗读以下文字："{spoken_text}"`——`doubao.voice` 是固定音色描述，**逐字使用**：
+1. 读 `outputs/YYYY-MM-DD/artifacts/tts_manifest.json`，看 `doubao.tool`（默认 `text_to_audio_plus`）和 **`todo`** 列表（只列还缺的音频）。
+2. 对 `todo` 里**每一条**，按顺序**一次只发一条**：
+   - 文生语音（`text_to_audio_plus`）：把该条 `request` **原样**发送。它已经填好了固定音色描述和原文，格式为：`"{音色描述}"。朗读以下文字："{这一段原文}"`，其中音色描述为：
      > 年轻女性，声音温柔甜美，咬字清晰有节奏感，情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声
-   - `spoken_text` 是**原文**：GPU、RSA-260、552B 等英文和阿拉伯数字照原样读，不拆单字母、不念成中文数字、不增删字词
-   - 不要在请求里要求语速：音色描述只描述音色，程序会把每句统一加速 1.25 倍（音高不变）
-   - 保存到这一条的 `output_path`（`assets/audio/raw/uNN.wav`，mp3/m4a 也可以，程序会自动转换）
-3. 不要把多条合并成一个文件；某条失败就重试一次。
-4. 全部完成后重新运行同一条编排器命令。
-
-## 声音克隆（`--tts-mode voice-clone`）
-
-`doubao.tool` 为 `audio_to_audio_plus` 时：`@音频1` = `doubao.reference_audio`（项目根目录 `example-audio.mp3`），prompt 用 `doubao.prompt_template`（把 `{spoken_text}` 换成该条文字），保存到 `output_path`。克隆模式不加速。
+   - 声音克隆（`audio_to_audio_plus`）：`@音频1` = `doubao.reference_audio`（项目根目录 `example-audio.mp3`），prompt = 该条 `request`。
+   - 保存到该条 `output_path`：整段为 `assets/audio/raw/bNN.wav`，单句为 `uNN.wav`。mp3 或 m4a 也可以，程序会自动转换。
+3. 规则：
+   - 一条 todo 是**几句话连读的一整段**。不要拆开，不要和别的条合并，不增删字词。英文和阿拉伯数字（GPU、RSA-260、552B）照原样读，不拆单字母，不念成中文数字。
+   - 不要在请求里要求语速。程序会统一加速 1.25 倍，音高不变（只对文生语音）。
+   - **限流**：遇到“合成太频繁”等报错，**等 10 秒**再重试同一条，最多 3 次。不要并发，不要连发。
+4. 全部保存后，重新运行同一条编排器命令。程序会把每段切回单句；如果某一段没能自动切开，它会重新交接，`todo` 里变成这一段的**单句**（`kind: "sentence"`）。照同样方法逐条合成，再重新运行即可。
 
 ## 豆包配音不可用时
 
-重新运行时加 `--tts edge`（或 `--no-agent`），程序会自动用 Microsoft Edge 神经网络语音（`zh-CN-YunxiNeural`，可用环境变量 `EDGE_TTS_VOICE`/`EDGE_TTS_RATE` 调整）合成，并带逐词时间戳。
+重新运行时加 `--tts edge`（或 `--no-agent`），程序会自动用 Microsoft Edge 神经网络语音合成，并带逐词时间戳。默认声音是 `zh-CN-YunxiNeural`，可以用环境变量 `EDGE_TTS_VOICE` 或 `EDGE_TTS_RATE` 调整。
 
 ## 程序会自动做的事
 
-- 文生语音模式每句加速 `AI_DAILY_DOUBAO_TEMPO`（默认 1.25，ffmpeg atempo，音高不变）
-- 转为 48 kHz 单声道 WAV，精确裁掉首尾静音（−42 dBFS 阈值，保留 40 ms）
-- 写 `artifacts/alignments/uNN.json`（edge 为原生逐词时间，豆包为句内比例时间）
-- 句间停顿：句内 0.14 s，换条 0.40 s，钩子后 0.30 s
-- 混音：说话时音乐低于人声约 18 dB，最终 −16 LUFS / −1.5 dBTP
+- **切句**：在整段音频里找停顿，按每句的字数（英文按音节、数字按读法估算）预估每个句界的位置，在最近的停顿中间切开。每句切出来后检查语速是否合理。切不准时先放宽停顿长度重试一次；还不行，这一段就改为逐句请求，其他段不受影响。切点和检查结果写在 `tts_manifest.json` 各段的 `split` 字段里，请求次数写在 `voice_manifest.json` 的 `doubao_requests` 字段里。
+- 文生语音模式每句加速 `AI_DAILY_DOUBAO_TEMPO`（默认 1.25，用 ffmpeg atempo，音高不变）。
+- 转为 48 kHz 单声道 WAV，精确裁掉首尾静音（阈值 −42 dBFS，保留 40 ms）。
+- 写 `artifacts/alignments/uNN.json`（edge 为原生逐词时间，豆包为句内比例时间）。
+- 句间停顿统一由程序控制：句内 0.14 s，换条 0.40 s，钩子后 0.30 s。
+- 混音：说话时音乐比人声低约 18 dB，最终响度 −16 LUFS，真峰值 −1.5 dBTP。
+- 断点续跑：已保存的音频不会重做。改了稿子的句子，其旧音频会自动删掉重配。
 
-## 更换音色
+## 可调参数（`ai_morning_brief/config.py`）
 
-文生语音：改 `ai_morning_brief/config.py` 的 `DOUBAO_TTS_VOICE_PROFILE`（清单、交接提示、本 skill 都从这里取）。声音克隆：替换项目根目录 `example-audio.mp3`。
+- 每段字数上限：`DOUBAO_BATCH_MAX_CHARS`（默认 300，环境变量 `AI_DAILY_DOUBAO_BATCH_CHARS`）。
+- 限流后的等待时间：`DOUBAO_RATE_LIMIT_WAIT_SECONDS`（默认 10）。
+- 更换音色：文生语音改 `DOUBAO_TTS_VOICE_PROFILE`；声音克隆替换项目根目录的 `example-audio.mp3`。
