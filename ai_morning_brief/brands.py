@@ -48,6 +48,33 @@ def find_brand(text: str) -> dict[str, Any] | None:
     return {"name": entry.get("name"), "logo_path": str(asset) if asset.is_file() else ""}
 
 
+def logo_silhouette(source: Path, destination: Path, rgb: tuple[int, int, int]) -> tuple[int, int]:
+    """One-colour silhouette of a logo (transparent PNG, trimmed), for the big brand backdrop.
+
+    Logos come in every colour (white marks made for dark backgrounds, multi-colour, black on an
+    opaque white canvas), so the backdrop uses the shape only: a logo drawn on an opaque white
+    canvas is keyed (near-white -> transparent, soft edge) first. Returns the trimmed size.
+    """
+
+    from PIL import Image, ImageChops, ImageStat
+
+    image = Image.open(source).convert("RGBA")
+    alpha = image.getchannel("A")
+    opaque_share = ImageStat.Stat(alpha.point(lambda v: 255 if v > 128 else 0)).mean[0] / 255
+    if opaque_share > 0.9:   # drawn on an opaque white canvas: whatever is not near-white is the logo
+        r, g, b = image.convert("RGB").split()
+        lowest = ImageChops.darker(ImageChops.darker(r, g), b)   # a coloured mark keeps a low channel
+        keyed = lowest.point(lambda v: 0 if v > 235 else 255 if v <= 200 else int(255 * (235 - v) / 35))
+        alpha = ImageChops.multiply(alpha, keyed)
+    box = alpha.point(lambda v: 255 if v > 10 else 0).getbbox() or (0, 0, image.width, image.height)
+    alpha = alpha.crop(box)
+    silhouette = Image.new("RGBA", alpha.size, tuple(rgb) + (0,))
+    silhouette.putalpha(alpha)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    silhouette.save(destination)
+    return silhouette.size
+
+
 def trimmed_logo(source: Path, destination: Path, *, padding: int = 14) -> Path:
     """Copy a logo with its empty margin removed so chips size it correctly."""
 

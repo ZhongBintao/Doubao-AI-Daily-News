@@ -362,6 +362,60 @@ class RenderMarkupTests(unittest.TestCase):
         self.assertIn('class="name"', render._subject_chip(scene, {"s": {"src": "a.png", "wide": False}}))
         self.assertNotIn('class="name"', render._subject_chip(scene, {"s": {"src": "a.png", "wide": True}}))
 
+    def test_backdrop_geometry_fits_the_box_and_square_logos_bleed_less(self):
+        wide = render.backdrop_geometry(917, 219)       # AMD wordmark
+        square = render.backdrop_geometry(220, 220)     # Tencent Hunyuan symbol
+        for g in (wide, square):
+            self.assertLessEqual(g["width"], C.BACKDROP_BOX[0])
+            self.assertLessEqual(g["height"], C.BACKDROP_BOX[1])
+            self.assertEqual(g["top"] + g["height"], C.BACKDROP_BOTTOM, "the logo ends above the captions")
+        self.assertEqual(wide["width"], C.BACKDROP_BOX[0])
+        self.assertEqual(wide["right"], -C.BACKDROP_BLEED[1], "a wide wordmark bleeds the full cap")
+        self.assertEqual(square["height"], C.BACKDROP_BOX[1])
+        self.assertGreater(square["right"], -C.BACKDROP_BLEED[1], "a square symbol bleeds less")
+        self.assertLess(C.BACKDROP_BOTTOM, 1372)
+
+    def test_backdrop_only_on_hook_story_and_flash_and_replaces_the_hook_orbit(self):
+        logos = {sid: {"src": "assets/logos/x.png", "wide": True,
+                       "backdrop": {"src": f"assets/logos/backdrop-{sid}.png", "width": 400, "height": 100}}
+                 for sid in ("hook", "story-01", "story-02", "outro")}
+        scenes = [{"scene_id": "hook", "kind": "hook", "hook": "钩子", "keyfact": "事实"},
+                  {"scene_id": "story-01", "kind": "story", "title": "头条", "cards": []},
+                  {"scene_id": "story-02", "kind": "flash", "title": "快讯", "point": "要点"},
+                  {"scene_id": "outro", "kind": "outro", "recap": []}]
+        markup = {s["scene_id"]: render.scene_markup(s, RUN_DATE, logos) for s in scenes}
+        for sid in ("hook", "story-01", "story-02"):
+            self.assertIn(f'class="backdrop" src="assets/logos/backdrop-{sid}.png"', markup[sid])
+            self.assertIn(f"opacity:{C.BACKDROP_OPACITY:g}", markup[sid])
+        self.assertNotIn("backdrop", markup["outro"], "the outro recaps several brands: no backdrop")
+        self.assertNotIn('class="orbit"', markup["hook"])
+        self.assertIn('class="orbit"', markup["outro"])
+        bare = render.scene_markup(scenes[1], RUN_DATE, {})
+        self.assertNotIn("backdrop", bare, "no logo in the library: no backdrop")
+        self.assertIn('class="orbit"', render.scene_markup(scenes[0], RUN_DATE, {}))
+
+    def test_logo_silhouette_keys_white_canvases_and_keeps_white_marks(self):
+        from PIL import Image
+        from ai_morning_brief import brands
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            # black wordmark on an opaque white canvas (like anthropic.png)
+            canvas = Image.new("RGBA", (300, 100), (255, 255, 255, 255))
+            canvas.paste((20, 20, 20, 255), (100, 40, 200, 60))
+            canvas.save(tmp / "opaque.png")
+            # white mark on transparency (like amd.png)
+            white = Image.new("RGBA", (300, 100), (0, 0, 0, 0))
+            white.paste((255, 255, 255, 255), (50, 20, 110, 80))
+            white.save(tmp / "white.png")
+            for name, size in (("opaque.png", (100, 20)), ("white.png", (60, 60))):
+                out = tmp / f"sil-{name}"
+                self.assertEqual(brands.logo_silhouette(tmp / name, out, (208, 100, 58)), size, name)
+                image = Image.open(out).convert("RGBA")
+                self.assertEqual(image.getpixel((size[0] // 2, size[1] // 2)), (208, 100, 58, 255), "the shape takes the section colour")
+            corner = Image.open(tmp / "sil-opaque.png").convert("RGBA")
+            self.assertEqual(Image.open(tmp / "opaque.png").getpixel((5, 5))[:3], (255, 255, 255))
+            self.assertEqual(corner.size, (100, 20), "the white canvas is keyed out and trimmed away")
+
 
 class PublishTests(unittest.TestCase):
     def test_copy_has_short_xhs_title_and_hashtags(self):

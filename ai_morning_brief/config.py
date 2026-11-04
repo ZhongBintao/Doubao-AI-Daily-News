@@ -207,6 +207,14 @@ PAUSE_BETWEEN_SENTENCES = 0.14
 PAUSE_BETWEEN_STORIES = 0.40
 OUTRO_TEXT = "关注我，每天看懂 AI 大事。"
 OUTRO_MIN_SECONDS = 5.5          # read the recap; the tail-aligned ending track resolves on the last frame
+# Brand backdrop (2026-11-04, scheme A): the story's logo, enlarged as a one-colour silhouette in the
+# section colour, sits behind the cards and bleeds off the bottom-right edge. Hook, headlines and flashes;
+# never the outro. A story without a logo in the library gets no backdrop (the small chip stays).
+BACKDROP_BOX = (1280, 560)        # the logo is fitted (aspect kept) into this box
+BACKDROP_BOTTOM = 1350            # bottom edge of the logo; the content area ends at 1348, captions start at 1372
+BACKDROP_BLEED = (0.22, 280)      # share of the logo width beyond the right edge, capped in px (square logos bleed less)
+BACKDROP_OPACITY = 0.20
+BACKDROP_COLORS = {"head": (208, 100, 58), "flash": (45, 91, 140)}   # palette A: --head / --flash
 
 # Voice
 TTS_PROVIDERS = ("doubao", "edge")

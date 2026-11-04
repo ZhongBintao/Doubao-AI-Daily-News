@@ -30,6 +30,10 @@ html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--
 .orbit { position: absolute; width: 760px; height: 760px; right: -260px; top: 140px; border: 1px solid rgba(31,38,41,.10); border-radius: 50%; pointer-events: none; }
 .orbit::before, .orbit::after { content: ""; position: absolute; inset: 70px; border: 1px dashed rgba(208,100,58,.24); border-radius: 50%; }
 .orbit::after { inset: 180px; border: 1px solid rgba(208,100,58,.16); }
+/* Brand backdrop (scheme A): the story's logo as a one-colour silhouette in the section colour, enlarged,
+   bleeding off the bottom-right edge; above the paper grid, below the content (.body is z-index 2).
+   Size, position and opacity are written inline by render.backdrop_geometry (config.BACKDROP_*). */
+.backdrop { position: absolute; z-index: 0; pointer-events: none; user-select: none; }
 
 /* One persistent header above every scene (scenes cross-fade underneath it). */
 .chrome { position: absolute; inset: 0; z-index: 50; pointer-events: none; }

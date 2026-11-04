@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import config as C
-from .brands import trimmed_logo
+from .brands import logo_silhouette, trimmed_logo
 
 TEMPLATE = Path(__file__).resolve().parent / "template" / "v6" / "index.html"
 HYPERFRAMES_PACKAGE = os.environ.get("HYPERFRAMES_PACKAGE", "hyperframes@0.9.8")
@@ -94,12 +94,34 @@ def _card(angle: str, headline: str, body: Any, index: int, *, extra: str = "") 
             f'<div class="copy">{text}</div></article>')
 
 
+def backdrop_geometry(width: int, height: int) -> dict[str, int]:
+    """Size and place a logo silhouette for the brand backdrop (fitted into BACKDROP_BOX, aspect kept)."""
+
+    box_w, box_h = C.BACKDROP_BOX
+    scale = min(box_w / max(1, width), box_h / max(1, height))
+    w, h = round(width * scale), round(height * scale)
+    share, cap = C.BACKDROP_BLEED
+    return {"width": w, "height": h, "top": C.BACKDROP_BOTTOM - h, "right": -round(min(cap, share * w))}
+
+
+def _backdrop(scene: Mapping[str, Any], logos: Mapping[str, Any]) -> str:
+    logo = logos.get(scene["scene_id"])
+    mark = logo.get("backdrop") if isinstance(logo, Mapping) else None
+    if not mark:
+        return ""
+    g = backdrop_geometry(mark["width"], mark["height"])
+    return (f'<img class="backdrop" src="{html.escape(mark["src"])}" alt="" style="top:{g["top"]}px;right:{g["right"]}px;'
+            f'width:{g["width"]}px;height:{g["height"]}px;opacity:{C.BACKDROP_OPACITY:g}">')
+
+
 def scene_markup(scene: Mapping[str, Any], run_date: date, logos: Mapping[str, Any]) -> str:
     kind = scene["kind"]
     cat = re.sub(r"[^a-z\-]", "", str(scene.get("category") or "other")) or "other"
     sid = html.escape(scene["scene_id"])
+    backdrop = _backdrop(scene, logos) if kind in {"hook", "story", "flash"} else ""
     if kind == "hook":
-        return (f'<section class="scene kind-hook cat-{cat}" id="{sid}"><div class="orbit"></div><div class="body">'
+        # The big logo takes the place of the decorative orbit.
+        return (f'<section class="scene kind-hook cat-{cat}" id="{sid}">{backdrop or '<div class="orbit"></div>'}<div class="body">'
                 f'<div class="kicker-row"><span class="kicker">今日头条</span>{_subject_chip(scene, logos)}</div>'
                 f'<h1 class="hook-title fit" data-max="118" data-min="76" data-lines="4">{_marked(scene.get("hook"), "<em>", "</em>")}</h1>'
                 f'<div class="hook-rule"></div><div class="keyfact"><p>{html.escape(str(scene.get("keyfact") or ""))}</p></div>'
@@ -107,7 +129,7 @@ def scene_markup(scene: Mapping[str, Any], run_date: date, logos: Mapping[str, A
     if kind == "story":
         cards = [_card(str(card.get("angle") or card.get("label") or ""), str(card.get("headline") or ""), card.get("body"), i + 1)
                  for i, card in enumerate(scene.get("cards") or [])]
-        return (f'<section class="scene kind-story cat-{cat}" id="{sid}"><div class="body">'
+        return (f'<section class="scene kind-story cat-{cat}" id="{sid}">{backdrop}<div class="body">'
                 f'<div class="kicker-row"><span class="kicker">头条</span><span class="section">{html.escape(str(scene.get("section") or ""))}</span>{_subject_chip(scene, logos)}</div>'
                 f'<h2 class="story-title fit" data-max="66" data-min="50" data-lines="3">{html.escape(str(scene.get("title") or ""))}</h2>'
                 f'<div class="cards"><div class="cards-inner">{"".join(cards)}</div></div></div></section>')
@@ -115,7 +137,7 @@ def scene_markup(scene: Mapping[str, Any], run_date: date, logos: Mapping[str, A
         cards = [_card("要点", "", scene.get("point"), 1, extra=" flash-card")]
         if scene.get("why"):
             cards.append(_card("为什么值得关注", "", scene.get("why"), 2, extra=" flash-card why"))
-        return (f'<section class="scene kind-flash cat-{cat}" id="{sid}"><div class="body">'
+        return (f'<section class="scene kind-flash cat-{cat}" id="{sid}">{backdrop}<div class="body">'
                 f'<div class="kicker-row"><span class="kicker">快讯</span><span class="section">{html.escape(str(scene.get("section") or ""))}</span>{_subject_chip(scene, logos)}</div>'
                 f'<h2 class="story-title fit" data-max="72" data-min="54" data-lines="3">{html.escape(str(scene.get("title") or ""))}</h2>'
                 f'<div class="cards"><div class="cards-inner">{"".join(cards)}</div></div></div></section>')
@@ -196,6 +218,11 @@ def materialize(run_dir: Path, final_plan: Mapping[str, Any], timeline: Mapping[
             if not target.exists():
                 trimmed_logo(Path(source), target)
             logos[scene["scene_id"]] = {"src": f"assets/logos/{target.name}", "wide": _is_wordmark(target)}
+            if scene.get("kind") in {"hook", "story", "flash"}:
+                role = "flash" if scene["kind"] == "flash" else "head"
+                mark = workspace / "assets" / "logos" / f"backdrop-{role}-{Path(source).stem}.png"
+                width, height = logo_silhouette(Path(source), mark, C.BACKDROP_COLORS[role])
+                logos[scene["scene_id"]]["backdrop"] = {"src": f"assets/logos/{mark.name}", "width": width, "height": height}
     timings = {s["scene_id"]: s for s in timeline.get("scenes") or []}
     shown = [scene for scene in final_plan.get("scenes") or [] if scene["scene_id"] in timings]
     body = [header_markup(shown, run_date)] + [scene_markup(scene, run_date, logos) for scene in shown]
