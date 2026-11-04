@@ -32,6 +32,13 @@
 - **音乐来源**：`assets/music/README.md` 记录三段曲子取自 Publication Podcast Studio 插件；用户已决定使用仓库内这三段
 - 钩子页是否加通用视觉元素（如超大 Logo 背景）仍待定，不影响出片
 
+## 豆包生产接入（2026-11-04）
+
+- 豆包配音默认改为用户在 `feat/tts-text-to-audio` 上定下的方式：`text_to_audio_plus` + 固定女主播音色描述，读原文（英文、阿拉伯数字照原样），每句统一加速 1.25 倍（音高不变）；声音克隆保留为 `--tts-mode voice-clone`
+- `--min-stories 3`：可播新闻少于 3 条时干净终止（退出码 4），不补旧闻
+- 豆包提示词改为 v6 流程：拉 `design/v6-vertical-template` 分支、不装 faster-whisper、交接点只有 director 与 voice、封面自动生成（3:4 / 9:16，无 16:9）、视频 1080×1920（见 `entry-skill/ai-daily-news-studio/SKILL.md`）
+- 本环境用 edge 声音模拟豆包交接跑通全流程（123 秒，自检通过）；真实豆包仍未实测
+
 ## 修改过的既有 bug
 
 - 改写某句旁白后重跑，配音会沿用旧音频（`voice._drop_stale_audio`）

@@ -62,9 +62,9 @@ report     汇总
 
 ## 配音契约
 
-- 逐句一个音频文件；豆包模式按 `artifacts/tts_manifest.json` 逐条用 `audio_to_audio_plus` + `example-audio.mp3` 合成（见 `ai-brief-doubao-voice`）；edge 模式自动合成并带逐词时间。
+- 逐句一个音频文件；豆包模式按 `artifacts/tts_manifest.json` 逐条合成（见 `ai-brief-doubao-voice`）：默认 `text-to-audio` 用 `text_to_audio_plus` + 固定音色描述（`DOUBAO_TTS_VOICE_PROFILE`），每句再统一加速 1.25 倍（`DOUBAO_TEMPO`，音高不变）；`--tts-mode voice-clone` 用 `audio_to_audio_plus` + `example-audio.mp3`。豆包读原文（英文、阿拉伯数字照原样），不做读法改写。edge 模式自动合成并带逐词时间。
 - `finalize` 统一转 48 kHz 单声道 WAV、精确裁掉首尾静音、写 `artifacts/alignments/*.json`。
-- `display_text`（字幕/画面）与 `spoken_text`（TTS）分离；`writing.normalize_with_ledger` 仍是唯一的读法标准化入口。
+- `display_text`（字幕/画面）与 `spoken_text`（TTS）分离；`writing.normalize_with_ledger` 是 edge 的读法标准化入口，豆包直接读 `display_text`（`voice.spoken_for`）。
 - 句间停顿由程序控制：句内 0.14 s、换条 0.40 s、钩子后 0.30 s。
 
 ## 画面契约（v6 模板）
@@ -88,6 +88,8 @@ python -m ai_morning_brief.daily --date YYYY-MM-DD --status   # 进度
 python -m ai_morning_brief.daily --date YYYY-MM-DD --no-agent # 全自动：兜底稿 + edge-tts
 python -m ai_morning_brief.daily --date YYYY-MM-DD --tts edge # 只换配音为 edge
 python -m ai_morning_brief.daily --date YYYY-MM-DD --from render  # 从某阶段重跑
+python -m ai_morning_brief.daily --date YYYY-MM-DD --min-stories 3  # 可播新闻少于 3 条就终止（退出码 4）
+python -m ai_morning_brief.daily --date YYYY-MM-DD --tts-mode voice-clone  # 豆包改用声音克隆
 ```
 
 ## 输出目录

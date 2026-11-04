@@ -215,6 +215,19 @@ TTS_PROVIDERS = ("doubao", "edge")
 DEFAULT_TTS_PROVIDER = os.environ.get("AI_DAILY_TTS_PROVIDER", "doubao")
 EDGE_TTS_VOICE = os.environ.get("EDGE_TTS_VOICE", "zh-CN-YunxiNeural")
 EDGE_TTS_RATE = os.environ.get("EDGE_TTS_RATE", "+10%")
+# Doubao has two modes. ``text-to-audio`` (default, the production voice since feat/tts-text-to-audio):
+# ``text_to_audio_plus`` with the fixed voice profile below, no reference clip. ``voice-clone``:
+# ``audio_to_audio_plus`` with example-audio.mp3. Doubao reads English and Arabic numerals well, so it
+# gets the raw sentence (display text), never the Azure-style normalisation ("G P T", "五千五百二十亿").
+DOUBAO_TTS_MODES = ("text-to-audio", "voice-clone")
+DOUBAO_TTS_MODE = os.environ.get("AI_DAILY_DOUBAO_TTS_MODE", "text-to-audio")
+DOUBAO_TTS_VOICE_PROFILE = "年轻女性，声音温柔甜美，咬字清晰有节奏感，情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声"
+DOUBAO_TTS_REQUEST = '"{voice}"。朗读以下文字："{spoken_text}"'
+# Asking the TTS to speak faster made its timbre unstable, so pace is applied afterwards: every sentence is
+# sped up with a pitch-preserving atempo before the timeline is built (pictures and captions follow the audio).
+DOUBAO_TEMPO = {"text-to-audio": float(os.environ.get("AI_DAILY_DOUBAO_TEMPO", "1.25")), "voice-clone": 1.0}
+# Optional hard stop: an edition with fewer stories than this is not produced (0 = off, CLI --min-stories).
+MIN_STORIES = int(os.environ.get("AI_DAILY_MIN_STORIES", "0"))
 
 # Mix: music sits well under the voice and ducks further while speaking.
 MIX_MUSIC_UNDER_VOICE_DB = 14.0   # bed level; ducked DUCK_EXTRA_DB (4 dB) more while speaking -> ~18 dB under the voice

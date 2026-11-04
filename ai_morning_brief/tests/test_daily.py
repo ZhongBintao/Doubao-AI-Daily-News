@@ -289,7 +289,43 @@ class OrchestratorTests(unittest.TestCase):
                 daily.stage_voice(run)
             manifest = json.loads((run.art / "tts_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["provider"], "doubao")
-            self.assertIn("audio_to_audio_plus", json.dumps(manifest, ensure_ascii=False))
+            self.assertEqual(manifest["doubao"]["tool"], "text_to_audio_plus")
+            self.assertEqual(manifest["doubao"]["voice"], C.DOUBAO_TTS_VOICE_PROFILE)
+            final = json.loads((run.art / "director_final.json").read_text(encoding="utf-8"))
+            self.assertEqual([u["spoken_text"] for u in manifest["units"]], [u["display_text"] for u in final["units"]],
+                             "Doubao reads the raw sentence: no 'G P T' spelling, no Chinese numerals")
+
+    def test_doubao_voice_clone_mode_keeps_reference_audio(self):
+        from ai_morning_brief import voice
+        with tempfile.TemporaryDirectory() as tmp:
+            final = {"units": [{"unit_id": "u01", "scene_id": "hook", "spoken_text": "G P T 六。", "display_text": "GPT-6。"}]}
+            manifest = voice.build_manifest(Path(tmp), final, "doubao", mode="voice-clone")
+            self.assertEqual(manifest["doubao"]["tool"], "audio_to_audio_plus")
+            self.assertEqual(manifest["units"][0]["spoken_text"], "GPT-6。")
+            edge = voice.build_manifest(Path(tmp), final, "edge")
+            self.assertEqual(edge["units"][0]["spoken_text"], "G P T 六。")
+
+    def test_text_to_audio_sentences_are_sped_up_pitch_preserved(self):
+        import math
+        from array import array
+        from ai_morning_brief import voice
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            final = {"units": [{"unit_id": "u01", "scene_id": "hook", "spoken_text": "一句话。", "display_text": "一句话。"}]}
+            manifest = voice.build_manifest(run_dir, final, "doubao", mode="text-to-audio")
+            tone = array("h", (int(8000 * math.sin(2 * math.pi * 220 * i / voice.SAMPLE_RATE)) for i in range(voice.SAMPLE_RATE * 2)))
+            voice.write_wav(Path(manifest["units"][0]["output_path"]), tone)
+            result = voice.finalize(run_dir, manifest)
+            self.assertAlmostEqual(result["units"][0]["duration"], 2.0 / C.DOUBAO_TEMPO["text-to-audio"], delta=0.08)
+            self.assertEqual(result["tempo"], C.DOUBAO_TEMPO["text-to-audio"])
+
+    def test_min_stories_stops_cleanly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = daily.main(["--date", RUN_DATE.isoformat(), "--output-root", tmp, "--fixture-dir", str(FIXTURES), "--min-stories", "99"])
+            self.assertEqual(code, daily.EXIT_STOPPED)
+            state = json.loads((Path(tmp) / RUN_DATE.isoformat() / "run_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["stages"]["fetch"]["status"], "stopped")
+            self.assertIn("少于要求的 99 条", state["stages"]["fetch"]["error"])
 
     def test_rebuilt_manifest_drops_audio_of_changed_sentences(self):
         from ai_morning_brief import voice
@@ -301,7 +337,7 @@ class OrchestratorTests(unittest.TestCase):
             for unit in manifest["units"]:
                 Path(unit["output_path"]).parent.mkdir(parents=True, exist_ok=True)
                 Path(unit["output_path"]).write_bytes(b"audio")
-            final["units"][0]["spoken_text"] = "新句子。"
+            final["units"][0]["spoken_text"] = final["units"][0]["display_text"] = "新句子。"
             manifest = voice.build_manifest(run_dir, final, "doubao")
             self.assertEqual(voice.missing_units(manifest), ["u01"])
 

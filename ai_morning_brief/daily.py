@@ -36,9 +36,13 @@ STAGE_LABELS = {
     "bootstrap": "环境自检", "fetch": "AIHOT 取数与选题", "director": "导演稿（写稿）", "voice": "逐句配音",
     "mix": "时间轴与混音", "render": "视频渲染", "selfcheck": "成片自检", "cover": "封面", "publish": "发布文案与整合包", "report": "完成汇总",
 }
-EXIT_OK, EXIT_FAILURE, EXIT_HANDOFF = 0, 1, 3
+EXIT_OK, EXIT_FAILURE, EXIT_HANDOFF, EXIT_STOPPED = 0, 1, 3, 4
 MAX_PLAN_ATTEMPTS = 2
 SHANGHAI = timezone(timedelta(hours=8))
+
+
+class StopEdition(Exception):
+    """A deliberate, clean stop (e.g. fewer stories than --min-stories): nothing is made from old or invented news."""
 
 
 class Handoff(Exception):
@@ -62,13 +66,16 @@ def _read(path: Path) -> Any:
 
 
 class Run:
-    def __init__(self, run_date: date, output_root: Path, *, tts: str, no_agent: bool, fixture_dir: Path | None = None):
+    def __init__(self, run_date: date, output_root: Path, *, tts: str, no_agent: bool, fixture_dir: Path | None = None,
+                 tts_mode: str | None = None, min_stories: int = C.MIN_STORIES):
         self.date = run_date
         self.root = output_root
         self.dir = output_root / run_date.isoformat()
         self.art = self.dir / "artifacts"
         self.tts = tts
         self.no_agent = no_agent
+        self.tts_mode = tts_mode or C.DOUBAO_TTS_MODE
+        self.min_stories = min_stories
         self.fixture_dir = fixture_dir
         self.state_path = self.dir / "run_state.json"
         self.state = _read(self.state_path) or {"version": C.V6_VERSION, "date": run_date.isoformat(), "stages": {}}
@@ -142,6 +149,10 @@ def stage_fetch(run: Run) -> dict[str, Any]:
     selection = newsroom.select_edition(snapshot, aired, run.date)
     selection["aired_ledger"] = {"path": str(run.ledger_path), "entries_used": len(aired), "reconstructed_from_dailies": reconstructed}
     _write(run.art / "selection.json", selection)
+    count = len(selection["recommended"]["headlines"]) + len(selection["recommended"]["flashes"])
+    if run.min_stories and count < run.min_stories:
+        raise StopEdition(f"今天可播的新闻只有 {count} 条，少于要求的 {run.min_stories} 条，按要求终止，不用旧闻或虚构内容填充。"
+                          f"候选与原因见 {run.art / 'selection.json'}")
     return {"mode": selection["mode"], "heavy_count": selection["heavy_count"], "pool": len(selection["pool"]),
             "recommended": selection["recommended"], "sources": selection["sources_used"], "errors": selection["errors"]}
 
@@ -218,9 +229,11 @@ def stage_voice(run: Run) -> dict[str, Any]:
     provider = "edge" if (run.no_agent and run.tts == "doubao") else run.tts
     manifest_path = run.art / "tts_manifest.json"
     manifest = _read(manifest_path)
-    expected = [u["spoken_text"] for u in final["units"]]
-    if not manifest or manifest.get("provider") != provider or [u["spoken_text"] for u in manifest.get("units") or []] != expected:
-        manifest = voice.build_manifest(run.dir, final, provider)
+    expected = [voice.spoken_for(u, provider) for u in final["units"]]
+    mode = run.tts_mode if provider == "doubao" else None
+    if (not manifest or manifest.get("provider") != provider or [u["spoken_text"] for u in manifest.get("units") or []] != expected
+            or (manifest.get("doubao") or {}).get("mode") != mode):
+        manifest = voice.build_manifest(run.dir, final, provider, mode=mode)
     if provider == "edge":
         failed = voice.synthesize_edge(run.dir, manifest)
         if failed:
@@ -228,7 +241,10 @@ def stage_voice(run: Run) -> dict[str, Any]:
     else:
         missing = voice.missing_units(manifest)
         if missing:
-            _print_handoff("voice", [f"读取配音清单：{manifest_path}", "按 doubao.instructions 逐条合成，每条一句，保存到 output_path。",
+            tool = (manifest.get("doubao") or {}).get("tool", "")
+            how = (f"每条调用 text_to_audio_plus，请求：\"{C.DOUBAO_TTS_VOICE_PROFILE}\"。朗读以下文字：\"<该条 spoken_text>\"（英文和阿拉伯数字照原样读）"
+                   if tool == "text_to_audio_plus" else "每条调用 audio_to_audio_plus，@音频1 = example-audio.mp3，prompt 见 doubao.prompt_template")
+            _print_handoff("voice", [f"读取配音清单：{manifest_path}", how, "每条一句，保存到该条 output_path；按 doubao.instructions 执行。",
                                      f"还缺 {len(missing)} 条：{', '.join(missing)}",
                                      "豆包配音不可用时：加 --tts edge 重新运行，自动改用 edge-tts。"])
             raise Handoff("voice")
@@ -343,6 +359,11 @@ def run_daily(run: Run, *, skip: set[str], from_stage: str | None, to_stage: str
             stage.update(status="waiting_agent")
             run.save()
             return EXIT_HANDOFF
+        except StopEdition as exc:
+            stage.update(status="stopped", error=str(exc))
+            run.save()
+            print(f"■ {name}：{exc}", file=sys.stderr)
+            return EXIT_STOPPED
         except Exception as exc:  # report and stop; artifacts stay for resume
             stage.update(status="failed", error=f"{type(exc).__name__}: {exc}", traceback=traceback.format_exc()[-2000:])
             run.save()
@@ -367,7 +388,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ai_morning_brief.daily", description="AI每日早报 v6 每日编排器")
     parser.add_argument("--date", dest="run_date", help="期号日期 YYYY-MM-DD；默认北京时间今天")
     parser.add_argument("--output-root", type=Path, default=C.DEFAULT_OUTPUT_ROOT)
-    parser.add_argument("--tts", choices=C.TTS_PROVIDERS, default=C.DEFAULT_TTS_PROVIDER, help="配音：doubao（Agent 语音克隆）或 edge（自动）")
+    parser.add_argument("--tts", choices=C.TTS_PROVIDERS, default=C.DEFAULT_TTS_PROVIDER, help="配音：doubao（Agent 交接）或 edge（自动）")
+    parser.add_argument("--tts-mode", choices=C.DOUBAO_TTS_MODES, default=C.DOUBAO_TTS_MODE,
+                        help="豆包配音方式：text-to-audio（默认，text_to_audio_plus + 固定音色描述）或 voice-clone（audio_to_audio_plus + example-audio.mp3）")
+    parser.add_argument("--min-stories", type=int, default=C.MIN_STORIES, help="可播新闻少于这个条数就终止（退出码 4），不用旧闻凑数；默认 0 不限制")
     parser.add_argument("--no-agent", action="store_true", help="不交接给 Agent：写稿用兜底稿，配音用 edge")
     parser.add_argument("--force", action="store_true", help="清除状态，从头重跑")
     parser.add_argument("--status", action="store_true", help="只看进度")
@@ -385,7 +409,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_dir = args.output_root / run_date.isoformat()
     if args.force and (run_dir / "run_state.json").is_file():
         (run_dir / "run_state.json").unlink()
-    run = Run(run_date, args.output_root, tts=args.tts, no_agent=args.no_agent, fixture_dir=args.fixture_dir)
+    run = Run(run_date, args.output_root, tts=args.tts, no_agent=args.no_agent, fixture_dir=args.fixture_dir,
+              tts_mode=args.tts_mode, min_stories=args.min_stories)
     if args.status:
         print_status(run)
         return EXIT_OK
