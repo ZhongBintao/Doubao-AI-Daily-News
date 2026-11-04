@@ -182,7 +182,7 @@ def find_chrome() -> str | None:
 
 
 def materialize(run_dir: Path, final_plan: Mapping[str, Any], timeline: Mapping[str, Any], run_date: date) -> Path:
-    workspace = run_dir / "hyperframes"
+    workspace = run_dir / "hf-workspace"
     if workspace.exists():
         shutil.rmtree(workspace)
     (workspace / "assets" / "audio").mkdir(parents=True)
@@ -262,3 +262,71 @@ def probe(path: Path) -> dict[str, Any]:
         raise RenderError(f"rendered MP4 must be {C.V6_WIDTH}x{C.V6_HEIGHT}, got {video.get('width')}x{video.get('height')}")
     return {"duration": float(data["format"]["duration"]), "size": int(data["format"]["size"]), "width": video["width"], "height": video["height"],
             "video_codec": video.get("codec_name"), "audio_codec": audio.get("codec_name")}
+
+
+# ---------------------------------------------------------------------------
+# whole-cut delivery pace (ported from feat/tts-text-to-audio)
+# ---------------------------------------------------------------------------
+_SRT_TIME = re.compile(r"(\d{2}):(\d{2}):(\d{2}),(\d{3})")
+
+
+def _srt_to_seconds(ts: str) -> float:
+    h, m, s, ms = _SRT_TIME.match(ts).groups()
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
+
+
+def _seconds_to_srt(value: float) -> str:
+    value = max(0.0, value)
+    h = int(value // 3600); value -= h * 3600
+    m = int(value // 60); value -= m * 60
+    s = int(value); ms = int(round((value - s) * 1000))
+    if ms == 1000:
+        s += 1; ms = 0
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def scale_srt(srt_path: Path, tempo: float) -> bool:
+    """Divide every SRT timestamp by tempo so the sidecar matches the sped-up cut."""
+
+    if not srt_path.is_file():
+        return False
+
+    def repl(match: re.Match) -> str:
+        return _seconds_to_srt(_srt_to_seconds(match.group(0)) / tempo)
+
+    text = _SRT_TIME.sub(repl, srt_path.read_text(encoding="utf-8"))
+    srt_path.write_text(text, encoding="utf-8")
+    return True
+
+
+def apply_final_cut_tempo(video_path: Path, *, tempo: float | None = None, srt_path: Path | None = None) -> dict[str, Any]:
+    """Speed the whole rendered cut once (video + audio together, pitch preserved), then replace it.
+
+    A failed speed-up keeps the natural-speed cut and records a warning instead of losing the render.
+    """
+
+    tempo = C.final_cut_tempo() if tempo is None else tempo
+    report: dict[str, Any] = {"requested": tempo, "applied": False, "status": "disabled" if tempo == 1.0 else "pending",
+                              "source_duration_seconds": None, "output_duration_seconds": None, "srt_rescaled": False}
+    if tempo == 1.0:
+        return report
+    report["source_duration_seconds"] = probe(video_path)["duration"]
+    sped = video_path.with_name(f".{video_path.stem}-tempo{tempo:g}.mp4")
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(video_path),
+           "-filter:v", f"setpts=PTS/{tempo:g},fps=30",
+           "-filter:a", f"atempo={tempo:g}",
+           "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(sped)]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, check=False)
+    if result.returncode != 0 or not sped.is_file() or sped.stat().st_size == 0:
+        sped.unlink(missing_ok=True)
+        report["status"] = "failed"
+        report["error"] = (result.stderr or "")[-300:]
+        return report
+    os.replace(sped, video_path)
+    report["output_duration_seconds"] = probe(video_path)["duration"]
+    if srt_path is not None:
+        report["srt_rescaled"] = scale_srt(srt_path, tempo)
+    report["applied"] = True
+    report["status"] = "applied"
+    return report
