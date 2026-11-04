@@ -157,7 +157,7 @@ BUDGET_MIN_SHARE_OF_MATERIAL = 0.4   # never demand more narration than this sha
 # Card angle: a hidden multiple choice (icon + depth check); the on-screen card title is free, hook-style text.
 CARD_ANGLES = ("发生了什么", "关键数字", "怎么做到的", "各方说法", "背景", "为什么重要", "对你的影响", "还没确定", "下一步")
 CARD_DEPTH_ANGLES = ("各方说法", "背景", "为什么重要", "对你的影响")
-CARD_LABELS, CARD_DEPTH_LABELS = CARD_ANGLES, CARD_DEPTH_ANGLES   # v6.1 names
+CARD_LABELS, CARD_DEPTH_LABELS = CARD_ANGLES, CARD_DEPTH_ANGLES
 
 # Hook-style titles (contract 6.2): pick a formula, write 3 candidates, keep the best.
 # Curiosity, never deception: every fact is in the material and every suspense is paid off in the story.
@@ -188,7 +188,7 @@ TITLE_TONE_EXAMPLES = [
 ]
 # Punchy but false - never write these (they change the fact, not just the tone).
 TITLE_TONE_DONTS = [
-    {"text": "每 5 次搜索，ChatGPT 就分走 1 次", "why": "素材说的是“相当于 Google 的 20%”，不是抢走份额"},
+    {"text": "每 5 次搜索，ChatGPT 就分了 1 次", "why": "素材说的是“相当于 Google 的 20%”，不是抢走份额"},
     {"text": "你花钱买的 AI，可能被偷偷换成便宜货", "why": "素材只说能防止偷换，没说正在发生"},
     {"text": "欧洲最强开源模型，连研发秘方都公开了", "why": "“欧洲最强”素材里没有"},
 ]
@@ -221,21 +221,39 @@ EDGE_TTS_RATE = os.environ.get("EDGE_TTS_RATE", "+10%")
 # gets the raw sentence (display text), never the Azure-style normalisation ("G P T", "五千五百二十亿").
 DOUBAO_TTS_MODES = ("text-to-audio", "voice-clone")
 DOUBAO_TTS_MODE = os.environ.get("AI_DAILY_DOUBAO_TTS_MODE", "text-to-audio")
-DOUBAO_TTS_VOICE_PROFILE = "年轻女性，声音温柔甜美，咬字清晰有节奏感，情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声"
-DOUBAO_TTS_REQUEST = '"{voice}"。朗读以下文字："{spoken_text}"'
-# Asking the TTS to speak faster made its timbre unstable, so pace is applied afterwards: every sentence is
-# sped up with a pitch-preserving atempo before the timeline is built (pictures and captions follow the audio).
-DOUBAO_TEMPO = {"text-to-audio": float(os.environ.get("AI_DAILY_DOUBAO_TEMPO", "1.25")), "voice-clone": 1.0}
-# Doubao rate-limits frequent calls ("合成太频繁") but accepts long texts, so by default the whole
-# edition (hook to outro, <= ~1000 characters) is read in ONE request and the program cuts the answer
-# back into sentences at the pauses. If a recording cannot be cut cleanly it is asked again in smaller
-# batches (DOUBAO_BATCH_FALLBACK_CHARS, whole stories where possible), and a small batch that still
-# cannot be cut falls back to one request per sentence. A tail shorter than DOUBAO_BATCH_MIN_TAIL joins
-# the previous batch even if that runs slightly over the cap.
-DOUBAO_BATCH_MAX_CHARS = int(os.environ.get("AI_DAILY_DOUBAO_BATCH_CHARS", "1500"))
-DOUBAO_BATCH_FALLBACK_CHARS = 300
-DOUBAO_BATCH_MIN_TAIL = 40
-DOUBAO_RATE_LIMIT_WAIT_SECONDS = 10
+DOUBAO_TTS_VOICE_PROFILE = ("清脆元气的少女音，音调偏高，声音明亮活泼、带着少年感，语气俏皮可爱、尾音微微上扬，"
+                            "语速明快、节奏轻快跳跃，像动漫角色配音一样元气满满，播报新闻时英文单词用自然的英文发音读出，"
+                            "纯人声无背景音乐")
+DOUBAO_TTS_REQUEST = '"{voice}"，内容如下："{spoken_text}"'
+# Chunked synthesis: instead of one TTS call per sentence, consecutive units are merged into a few long
+# chunks (each within the engine's per-call limit) so timbre, energy and pace stay consistent inside one
+# continuous take. finalize re-derives per-unit boundaries (DP alignment) and per-unit word timings.
+# Applies to text-to-audio only; voice-clone and edge keep their per-unit path.
+DOUBAO_CHUNKED = os.environ.get("AI_DAILY_DOUBAO_CHUNKED", "1") not in ("0", "false", "False")
+DOUBAO_CHUNK_MAX_CHARS = int(os.environ.get("AI_DAILY_DOUBAO_CHUNK_MAX_CHARS", "280"))
+DOUBAO_CHUNK_MIN_GAP_S = 0.05    # only pauses at least this long are candidate unit boundaries
+DOUBAO_CHUNK_MIN_UNIT_S = 0.15   # minimum duration assigned to one unit
+# Per-sentence tempo is off: speeding each sentence before the mix made its timbre unstable. Narration stays
+# natural speed through the timeline; the whole cut is sped up once after rendering (final_cut_tempo), video
+# and audio together, pitch preserved.
+DOUBAO_TEMPO = {"text-to-audio": 1.0, "voice-clone": 1.0}
+# Whole-cut delivery pace, applied once after render (setpts + atempo). 1.0 = natural speed; the timbre
+# profile already carries the pace, so the default cut is natural.
+FINAL_CUT_TEMPO_MIN, FINAL_CUT_TEMPO_MAX = 1.0, 2.0
+FINAL_CUT_TEMPO_DEFAULT = 1.0
+
+
+def final_cut_tempo() -> float:
+    raw = os.environ.get("AI_DAILY_OUTPUT_TEMPO")
+    if not raw:
+        return FINAL_CUT_TEMPO_DEFAULT
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return FINAL_CUT_TEMPO_DEFAULT
+    if not (FINAL_CUT_TEMPO_MIN <= value <= FINAL_CUT_TEMPO_MAX):
+        return FINAL_CUT_TEMPO_DEFAULT
+    return value
 # Optional hard stop: an edition with fewer stories than this is not produced (0 = off, CLI --min-stories).
 MIN_STORIES = int(os.environ.get("AI_DAILY_MIN_STORIES", "0"))
 
