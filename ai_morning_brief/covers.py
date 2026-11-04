@@ -51,9 +51,9 @@ h1 em { font-style: normal; color: #d0643a; }
 FIT_JS = """
 (function(){
   const seg = Intl.Segmenter ? new Intl.Segmenter("zh", {granularity: "word"}) : null;
-  const ASCII = /^[A-Za-z0-9.\-+%#_/]+$/, PUNCT = /^[，。！？、：；,.!?:;”’）)》%％]+$/, HAN1 = /^[\u4e00-\u9fff]$/;
+  const ASCII = /^[A-Za-z0-9.\\-+%#_/]+$/, PUNCT = /^[，。！？、：；,.!?:;”’）)》%％]+$/, HAN1 = /^[\\u4e00-\\u9fff]$/;
   const wrap = (el) => { if (!seg) return; [...el.childNodes].forEach((c) => { if (c.nodeType === 3) { const f = document.createDocumentFragment(); let prev = null, pair = false;
-    for (const {segment} of seg.segment(c.textContent)) { if (/^\s+$/.test(segment)) { f.appendChild(document.createTextNode(segment)); prev = null; pair = false; continue; }
+    for (const {segment} of seg.segment(c.textContent)) { if (/^\\s+$/.test(segment)) { f.appendChild(document.createTextNode(segment)); prev = null; pair = false; continue; }
       if (prev && ((ASCII.test(prev.textContent) && ASCII.test(segment)) || PUNCT.test(segment) || (pair && HAN1.test(segment)))) { prev.textContent += segment; pair = false; continue; }
       const s = document.createElement("span"); s.className = "w"; s.textContent = segment; f.appendChild(s); prev = s; pair = HAN1.test(segment); } c.replaceWith(f); } else if (c.nodeType === 1) wrap(c); }); };
   document.fonts.ready.then(() => { const h = document.querySelector("h1"); wrap(h);
@@ -103,7 +103,7 @@ def make_covers(run_dir: Path, run_date: date, final_plan: Mapping[str, Any], du
     results: dict[str, Any] = {}
     for ratio, (width, height) in RATIOS.items():
         page = out_dir / f"cover-{ratio}.html"
-        page.write_text(cover_html(ratio, run_date=run_date, final_plan=final_plan, font_uri=font.resolve().as_uri() if font.is_file() else "",
+        page.write_text(cover_html(ratio, run_date=run_date, final_plan=final, font_uri=font.resolve().as_uri() if font.is_file() else "",
                                    logo_uri=logo, duration=duration), encoding="utf-8")
         png = out_dir / f"{ratio}.png"
         if not chrome:
