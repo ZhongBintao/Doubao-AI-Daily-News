@@ -152,20 +152,16 @@ def build_manifest(run_dir: Path, final_plan: Mapping[str, Any], provider: str, 
         })
     path = run_dir / "artifacts" / "tts_manifest.json"
     previous = _read_json(path)
+    _drop_stale_audio(run_dir, previous, units)
     block = _doubao_block(mode, reference) if provider == "doubao" else None
     batches: list[dict[str, Any]] = []
     if block is not None:
-        by_id = {u["unit_id"]: u for u in units}
-        # A batch that could not be cut keeps its one-request-per-sentence fallback while its text is unchanged.
+        # Sentences that already have audio (an earlier, interrupted run) are not asked again.
+        pending = [u for u in units if not _has_audio(u["output_path"])]
         old_fallback = {b.get("spoken_text") for b in previous.get("batches") or [] if b.get("per_sentence")}
-        for index, ids in enumerate(plan_batches(units), start=1):
-            text = "".join(by_id[u]["spoken_text"] for u in ids)
-            batch_id = f"b{index:02d}"
-            batches.append({"batch_id": batch_id, "unit_ids": ids, "chars": _visible_len(text), "spoken_text": text,
-                            "request": _doubao_request(block, text),
-                            "output_path": str(raw_audio_path(run_dir, batch_id, ".wav")),
-                            "per_sentence": text in old_fallback})
-    _drop_stale_audio(run_dir, previous, units, batches)
+        for index, ids in enumerate(plan_batches(pending), start=1):
+            batches.append(_make_batch(block, run_dir, f"b{index:02d}", [u for u in pending if u["unit_id"] in ids], old_fallback))
+    _drop_stale_audio(run_dir, previous, [], batches)
     manifest = {
         "version": C.V6_VERSION,
         "provider": provider,
@@ -179,6 +175,13 @@ def build_manifest(run_dir: Path, final_plan: Mapping[str, Any], provider: str, 
         manifest["todo"] = doubao_todo(manifest)
     _write_manifest(path, manifest)
     return manifest
+
+
+def _make_batch(block: Mapping[str, Any], run_dir: Path, batch_id: str, units: list[Mapping[str, Any]], per_sentence_texts: set[str] | None = None) -> dict[str, Any]:
+    text = "".join(str(u["spoken_text"]) for u in units)
+    return {"batch_id": batch_id, "unit_ids": [u["unit_id"] for u in units], "chars": _visible_len(text), "spoken_text": text,
+            "request": _doubao_request(block, text), "output_path": str(raw_audio_path(run_dir, batch_id, ".wav")),
+            "per_sentence": text in (per_sentence_texts or set()) and len(units) > 1}
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -230,7 +233,7 @@ def doubao_todo(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
     todo: list[dict[str, Any]] = []
     for batch in manifest.get("batches") or []:
         missing = [uid for uid in batch["unit_ids"] if not _has_audio(by_id[uid]["output_path"])]
-        if not missing:
+        if not missing or batch.get("replaced_by"):
             continue
         if batch.get("per_sentence"):
             for uid in missing:
@@ -251,20 +254,34 @@ def prepare_doubao(run_dir: Path, manifest_path: Path, manifest: dict[str, Any])
     """
 
     by_id = {u["unit_id"]: u for u in manifest.get("units") or []}
+    block = manifest.get("doubao") or {}
+    batches: list[dict[str, Any]] = []
     for batch in manifest.get("batches") or []:
         units = [by_id[uid] for uid in batch["unit_ids"]]
         if batch.get("per_sentence") or all(_has_audio(u["output_path"]) for u in units) or not _has_audio(batch["output_path"]):
+            batches.append(batch)
             continue
         samples = decode_mono(Path(batch["output_path"]))
         cut = split_batch(samples, [u["spoken_text"] for u in units])
         if cut is None:
-            batch["per_sentence"] = True
             batch["split"] = {"status": "failed"}
+            if batch["chars"] > C.DOUBAO_BATCH_FALLBACK_CHARS and len(units) > 1:
+                # Too long to cut cleanly: ask again in a few smaller batches (still not one request per sentence).
+                groups = plan_batches(units, max_chars=C.DOUBAO_BATCH_FALLBACK_CHARS)
+                batch["replaced_by"] = [f"{batch['batch_id']}-{i}" for i in range(1, len(groups) + 1)]
+                batches.append(batch)
+                for sub_id, ids in zip(batch["replaced_by"], groups):
+                    batches.append(_make_batch(block, run_dir, sub_id, [by_id[uid] for uid in ids]))
+            else:
+                batch["per_sentence"] = True
+                batches.append(batch)
             continue
         for unit, (start, end) in zip(units, cut["ranges"]):
             write_wav(Path(unit["output_path"]), samples[start:end])
         batch["split"] = {"status": "ok", "method": cut["method"], "cuts_seconds": [round(r[1] / SAMPLE_RATE, 3) for r in cut["ranges"][:-1]],
                           "speed_ratios": cut["ratios"]}
+        batches.append(batch)
+    manifest["batches"] = batches
     manifest["todo"] = doubao_todo(manifest)
     _write_manifest(manifest_path, manifest)
     return manifest["todo"]
@@ -277,6 +294,7 @@ FRAME = SAMPLE_RATE // 100   # 10 ms analysis frames
 SPLIT_MIN_PAUSE = (0.12, 0.06)   # strict pass, then a looser pass
 SPLIT_SPEED_RANGE = (0.55, 1.8)  # each sentence's seconds-per-character vs the batch average
 SPLIT_GOOD_PAUSE = 0.45          # a pause this long counts as a full sentence break
+SPLIT_PAUSE_WEIGHT = 0.3         # how much a long pause is preferred over a plausible length
 
 
 def _frame_levels(samples: array) -> list[float]:
@@ -324,33 +342,55 @@ def _pauses(levels: list[float], threshold: float, first: int, last: int, min_fr
     return runs
 
 
-def _choose_cuts(candidates: list[tuple[float, float]], expected: list[float], sentence_seconds: float) -> list[int] | None:
-    """Pick one pause per boundary, in order, close to its expected time and preferably long (dynamic programming)."""
+def _choose_cuts(candidates: list[tuple[float, float]], weights: list[float], start: float, end: float) -> list[int] | None:
+    """Pick one pause per sentence break by dynamic programming over the sentence *lengths*.
 
-    k, m = len(expected), len(candidates)
+    Every sentence is scored on its own (its duration against its share of the recording,
+    on a log scale) plus a bonus for cutting at a long pause. Scoring lengths instead of
+    absolute positions keeps small estimation errors from piling up over a long
+    recording, so one request can hold a whole edition.
+    """
+
+    import bisect
+
+    k, m = len(weights) - 1, len(candidates)
     if m < k:
         return None
+    rate = (end - start) / sum(weights)
+    expected = [w * rate for w in weights]
+    mids = [c[0] for c in candidates]
     inf = float("inf")
 
-    def cost(b: int, j: int) -> float:
-        mid, length = candidates[j]
-        far = (mid - expected[b]) / sentence_seconds
-        return far * far + 0.6 * (1 - min(length / SPLIT_GOOD_PAUSE, 1.0))
+    def length_cost(index: int, a: float, b: float) -> float:
+        if b - a <= 0.05:
+            return inf
+        x = math.log((b - a) / expected[index])
+        return x * x
+
+    def pause_cost(j: int) -> float:
+        return SPLIT_PAUSE_WEIGHT * (1 - min(candidates[j][1] / SPLIT_GOOD_PAUSE, 1.0))
 
     table = [[inf] * m for _ in range(k)]
     back = [[-1] * m for _ in range(k)]
     for j in range(m):
-        table[0][j] = cost(0, j)
+        table[0][j] = length_cost(0, start, mids[j]) + pause_cost(j)
     for b in range(1, k):
-        best, best_j = inf, -1
         for j in range(m):
-            if j > 0 and table[b - 1][j - 1] < best:
-                best, best_j = table[b - 1][j - 1], j - 1
-            if best_j >= 0:
-                table[b][j] = best + cost(b, j)
-                back[b][j] = best_j
-    j = min(range(m), key=lambda x: table[k - 1][x])
-    if table[k - 1][j] == inf:
+            # Only previous breaks that leave sentence b a plausible length.
+            lo = bisect.bisect_left(mids, mids[j] - expected[b] * 3.0)
+            hi = bisect.bisect_right(mids, mids[j] - expected[b] * 0.3)
+            best, best_i = inf, -1
+            for i in range(lo, min(hi, j)):
+                if table[b - 1][i] < inf:
+                    value = table[b - 1][i] + length_cost(b, mids[i], mids[j])
+                    if value < best:
+                        best, best_i = value, i
+            if best_i >= 0:
+                table[b][j] = best + pause_cost(j)
+                back[b][j] = best_i
+    finals = [table[k - 1][j] + length_cost(k, mids[j], end) for j in range(m)]
+    j = min(range(m), key=lambda x: finals[x])
+    if finals[j] == inf:
         return None
     chosen = [j]
     for b in range(k - 1, 0, -1):
@@ -380,18 +420,12 @@ def split_batch(samples: array, texts: list[str]) -> dict[str, Any] | None:
         return None
     first, last = voiced[0], voiced[-1]
     weights = [_sentence_weight(t) for t in texts]
-    total_weight = sum(weights)
-    span = (last + 1 - first) * FRAME / SAMPLE_RATE
     start_s = first * FRAME / SAMPLE_RATE
-    expected, acc = [], 0.0
-    for w in weights[:-1]:
-        acc += w
-        expected.append(start_s + span * acc / total_weight)
-    sentence_seconds = span / len(texts)
+    end_s = (last + 1) * FRAME / SAMPLE_RATE
     for method, min_pause in (("pause", SPLIT_MIN_PAUSE[0]), ("short-pause", SPLIT_MIN_PAUSE[1])):
         runs = _pauses(levels, threshold, first, last, max(1, round(min_pause * 100)))
         candidates = [((a + b) / 2 * FRAME / SAMPLE_RATE, (b - a) * FRAME / SAMPLE_RATE) for a, b in runs]
-        chosen = _choose_cuts(candidates, expected, sentence_seconds)
+        chosen = _choose_cuts(candidates, weights, start_s, end_s)
         if chosen is None:
             continue
         cuts = [min(n, int(candidates[j][0] * SAMPLE_RATE)) for j in chosen]
@@ -587,9 +621,10 @@ def finalize(run_dir: Path, manifest: Mapping[str, Any]) -> dict[str, Any]:
 
 def _request_summary(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
     batches = manifest.get("batches") or []
-    if not batches:
+    if not batches and manifest.get("provider") != "doubao":
         return None
-    sentences = sum(len(b["unit_ids"]) for b in batches if b.get("per_sentence"))
-    return {"batches": len(batches), "per_sentence_batches": [b["batch_id"] for b in batches if b.get("per_sentence")],
-            "requests": sum(1 for b in batches if not b.get("per_sentence")) + sentences,
+    requests = sum(len(b["unit_ids"]) if b.get("per_sentence") else 1 for b in batches)
+    return {"requests": requests, "batches": [b["batch_id"] for b in batches],
+            "smaller_batches_after_failed_cut": [b["batch_id"] for b in batches if b.get("replaced_by")],
+            "per_sentence_batches": [b["batch_id"] for b in batches if b.get("per_sentence")],
             "splits": {b["batch_id"]: b.get("split") for b in batches}}

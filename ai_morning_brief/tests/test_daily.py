@@ -446,12 +446,29 @@ class OrchestratorTests(unittest.TestCase):
             final = {"units": [{"unit_id": "u01", "scene_id": "story-01", "spoken_text": "甲" * 200, "display_text": "甲" * 200},
                                {"unit_id": "u02", "scene_id": "story-02", "spoken_text": "乙" * 200, "display_text": "乙" * 200}]}
             manifest = voice.build_manifest(run_dir, final, "doubao")
-            self.assertEqual([t["id"] for t in manifest["todo"]], ["b01", "b02"])
-            # Sentences already synthesised one by one (an older run) are kept, not asked again.
+            self.assertEqual([t["id"] for t in manifest["todo"]], ["b01"], "the whole edition is one request by default")
+            self.assertEqual(manifest["batches"][0]["unit_ids"], ["u01", "u02"])
+            # Sentences already synthesised (an older, interrupted run) are kept, not asked again.
             Path(manifest["units"][0]["output_path"]).parent.mkdir(parents=True, exist_ok=True)
             Path(manifest["units"][0]["output_path"]).write_bytes(b"audio")
             again = voice.build_manifest(run_dir, final, "doubao")
-            self.assertEqual([t["id"] for t in again["todo"]], ["b02"])
+            self.assertEqual([(t["id"], again["batches"][0]["unit_ids"]) for t in again["todo"]], [("b01", ["u02"])])
+
+    def test_doubao_whole_edition_that_cannot_be_cut_is_asked_in_smaller_batches(self):
+        from ai_morning_brief import voice
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            final = {"units": [{"unit_id": f"u{i:02d}", "scene_id": f"story-0{i // 4 + 1}", "spoken_text": "句" * 60 + "。", "display_text": "句" * 60 + "。"}
+                               for i in range(1, 11)]}
+            manifest = voice.build_manifest(run_dir, final, "doubao")
+            self.assertEqual([t["id"] for t in manifest["todo"]], ["b01"])
+            samples, _ = self._speech_like([u["spoken_text"] for u in final["units"]], flat=True)
+            voice.write_wav(Path(manifest["batches"][0]["output_path"]), samples)
+            todo = voice.prepare_doubao(run_dir, run_dir / "artifacts" / "tts_manifest.json", manifest)
+            self.assertTrue(all(t["kind"] == "batch" and t["chars"] <= C.DOUBAO_BATCH_FALLBACK_CHARS for t in todo), todo)
+            self.assertTrue(1 < len(todo) < 10, "smaller batches, not one request per sentence")
+            self.assertEqual([u for t in todo for u in manifest["batches"][[b["batch_id"] for b in manifest["batches"]].index(t["id"])]["unit_ids"]],
+                             [u["unit_id"] for u in final["units"]])
 
     def test_status_and_check_plan_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
