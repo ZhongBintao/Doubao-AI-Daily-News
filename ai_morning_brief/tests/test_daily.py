@@ -374,6 +374,21 @@ class MaterialPackTests(unittest.TestCase):
         self.assertEqual([k.key for k in rundown["headlines"]], ["a", "c"])
         self.assertEqual([k.key for k in rundown["flashes"]], ["b"])
 
+    def test_close_heat_prefers_more_material(self):
+        def cluster(key, heat, depth):
+            k = newsroom.EventCluster(key=key, lead=newsroom.Candidate(item_id=key, title=f"标题 {key}", heat=heat), members=[], heat=heat)
+            k.pack = {"depth": depth, "fact_chars": {"rich": 1200, "medium": 400, "thin": 90}[depth]}
+            return k
+        head = cluster("h", 95, "rich")
+        thins = [cluster(f"t{i}", 84, "thin") for i in range(5)]
+        rich = cluster("r", 80, "rich")      # 4 points below, but far more material
+        far = cluster("f", 77, "rich")       # 7 points below: heat still wins
+        rundown = newsroom.plan_rundown([head, *thins, rich, far])
+        keys = [k.key for k in rundown["flashes"]]
+        self.assertIn("r", keys)
+        self.assertNotIn("f", keys)
+        self.assertEqual(len(keys), C.RUNDOWN_MAX_FLASHES)
+
     def test_three_minute_cap_drops_weakest_flashes_first(self):
         clusters = []
         for i in range(10):

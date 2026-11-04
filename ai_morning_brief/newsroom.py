@@ -545,6 +545,10 @@ def plan_rundown(clusters: list[EventCluster]) -> dict[str, Any]:
       included); at most RUNDOWN_MAX_FLASHES, or RUNDOWN_QUIET_FLASHES on a quiet day;
     * the estimated length is capped at RUNDOWN_MAX_SECONDS by dropping the
       weakest flashes first, then the weakest extra headline.
+
+    Thresholds use the raw heat; ranking inside them uses heat + a material
+    bonus (``RUNDOWN_DEPTH_BONUS``), so when two events are close in heat the
+    one with more AIHOT material wins the slot.
     """
 
     ranked = sorted(clusters, key=lambda k: (-k.heat, k.key))
@@ -554,8 +558,12 @@ def plan_rundown(clusters: list[EventCluster]) -> dict[str, Any]:
     for k in usable:
         k.budget = k.budget or M.story_budget(k.pack)
     fresh = [k for k in usable if not k.aired]
+
+    def merit(k: EventCluster) -> tuple[float, str]:
+        return (-(k.heat + C.RUNDOWN_DEPTH_BONUS.get(str(k.budget.get("depth")), 0)), k.key)
+
     heavy = [k for k in fresh if k.heat >= C.HEAT_HEAVY_THRESHOLD]
-    headlines = [k for k in heavy if k.budget["can_headline"]][: C.RUNDOWN_MAX_HEADLINES]
+    headlines = sorted([k for k in heavy if k.budget["can_headline"]], key=merit)[: C.RUNDOWN_MAX_HEADLINES]
     mode = "multi" if len(headlines) >= 2 else "normal"
     if not headlines:
         # Quiet day: one light headline, preferring an event that has material to tell.
@@ -563,7 +571,7 @@ def plan_rundown(clusters: list[EventCluster]) -> dict[str, Any]:
         headlines = [next((k for k in top if k.budget["can_headline"]), top[0])]
         mode = "quiet"
     flash_cap = C.RUNDOWN_QUIET_FLASHES if mode == "quiet" else C.RUNDOWN_MAX_FLASHES
-    flashes = [k for k in fresh if k not in headlines and k.heat >= C.HEAT_FLASH_THRESHOLD][:flash_cap]
+    flashes = sorted([k for k in fresh if k not in headlines and k.heat >= C.HEAT_FLASH_THRESHOLD], key=merit)[:flash_cap]
     dropped: list[dict[str, Any]] = []
 
     def estimate() -> float:

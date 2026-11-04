@@ -131,6 +131,8 @@ RUNDOWN_MAX_HEADLINES = 3
 RUNDOWN_MAX_FLASHES = 5
 RUNDOWN_QUIET_FLASHES = 2
 RUNDOWN_MAX_SECONDS = 180.0
+# Ranking bonus inside the thresholds: close in heat -> the event with more AIHOT material wins the slot.
+RUNDOWN_DEPTH_BONUS = {"rich": 6, "medium": 3, "thin": 0}
 SPEECH_CHARS_PER_SECOND = 5.5      # visible units/s (English letters count one each); edge-tts measures ~6.5, a cloned voice is slower
 
 # Writing budgets (visible units: a Han character or one English letter/digit). Story budgets
