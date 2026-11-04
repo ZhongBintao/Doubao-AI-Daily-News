@@ -126,14 +126,13 @@ PACK_DEPTH_MEDIUM = 300
 
 # Rundown: the day's content decides the count. Heavy events with enough
 # material become headlines (max 3), the rest above the flash line become
-# flashes (max 5); the estimated length is capped at 3 minutes.
+# flashes (max 5). There is no overall time cap (removed 2026-11-04).
 RUNDOWN_MAX_HEADLINES = 3
 RUNDOWN_MAX_FLASHES = 5
 RUNDOWN_QUIET_FLASHES = 2
-RUNDOWN_MAX_SECONDS = 180.0
 # Ranking bonus inside the thresholds: close in heat -> the event with more AIHOT material wins the slot.
 RUNDOWN_DEPTH_BONUS = {"rich": 6, "medium": 3, "thin": 0}
-SPEECH_CHARS_PER_SECOND = 5.5      # visible units/s (English letters count one each); edge-tts measures ~6.5, a cloned voice is slower
+SPEECH_CHARS_PER_SECOND = 5.5      # visible units/s (English letters count one each); edge-tts ~6.5, Doubao natural ~5.7
 
 # Writing budgets (visible units: a Han character or one English letter/digit). Story budgets
 # (narration min/max, card count) scale with the event's material depth.
@@ -146,7 +145,6 @@ BUDGET_CARD_BODY_MAX = 60
 BUDGET_SENTENCE_MAX = 42
 BUDGET_FLASH_POINT_MAX = 60
 BUDGET_FLASH_WHY_MAX = 60
-BUDGET_TOTAL_NARRATION_MAX = 900   # ~3 minutes at SPEECH_CHARS_PER_SECOND incl. pauses, hook and outro
 STORY_BUDGETS = {
     # depth: headline narration (min, max), headline cards (min, max), flash narration (min, max), flash sentences (min, max)
     "rich": {"headline": (150, 300), "cards": (3, 6), "flash": (45, 110), "flash_sentences": (2, 3)},
@@ -202,7 +200,7 @@ CARDS_PER_PAGE = 3
 V6_WIDTH = 1080
 V6_HEIGHT = 1920
 V6_FPS = 30
-V6_MAX_DURATION_SECONDS = 180.0
+V6_MIN_DURATION_SECONDS = 15.0
 V6_HOOK_MAX_SECONDS = 4.0
 PAUSE_AFTER_HOOK = 0.30
 PAUSE_BETWEEN_SENTENCES = 0.14
@@ -215,45 +213,38 @@ TTS_PROVIDERS = ("doubao", "edge")
 DEFAULT_TTS_PROVIDER = os.environ.get("AI_DAILY_TTS_PROVIDER", "doubao")
 EDGE_TTS_VOICE = os.environ.get("EDGE_TTS_VOICE", "zh-CN-YunxiNeural")
 EDGE_TTS_RATE = os.environ.get("EDGE_TTS_RATE", "+10%")
-# Doubao has two modes. ``text-to-audio`` (default, the production voice since feat/tts-text-to-audio):
-# ``text_to_audio_plus`` with the fixed voice profile below, no reference clip. ``voice-clone``:
-# ``audio_to_audio_plus`` with example-audio.mp3. Doubao reads English and Arabic numerals well, so it
-# gets the raw sentence (display text), never the Azure-style normalisation ("G P T", "五千五百二十亿").
-DOUBAO_TTS_MODES = ("text-to-audio", "voice-clone")
-DOUBAO_TTS_MODE = os.environ.get("AI_DAILY_DOUBAO_TTS_MODE", "text-to-audio")
+# Doubao: ``text_to_audio_plus`` with the fixed voice profile below, at its natural speed (no tempo change
+# anywhere). Doubao reads English and Arabic numerals well, so it gets the raw sentence (display text),
+# never the Azure-style normalisation ("G P T", "五千五百二十亿").
+DOUBAO_TTS_TOOL = "text_to_audio_plus"
 DOUBAO_TTS_VOICE_PROFILE = ("清脆元气的少女音，音调偏高，声音明亮活泼、带着少年感，语气俏皮可爱、尾音微微上扬，"
                             "语速明快、节奏轻快跳跃，像动漫角色配音一样元气满满，播报新闻时英文单词用自然的英文发音读出，"
                             "纯人声无背景音乐")
 DOUBAO_TTS_REQUEST = '"{voice}"，内容如下："{spoken_text}"'
-# Chunked synthesis: instead of one TTS call per sentence, consecutive units are merged into a few long
-# chunks (each within the engine's per-call limit) so timbre, energy and pace stay consistent inside one
-# continuous take. finalize re-derives per-unit boundaries (DP alignment) and per-unit word timings.
-# Applies to text-to-audio only; voice-clone and edge keep their per-unit path.
-DOUBAO_CHUNKED = os.environ.get("AI_DAILY_DOUBAO_CHUNKED", "1") not in ("0", "false", "False")
-DOUBAO_CHUNK_MAX_CHARS = int(os.environ.get("AI_DAILY_DOUBAO_CHUNK_MAX_CHARS", "280"))
-DOUBAO_CHUNK_MIN_GAP_S = 0.05    # only pauses at least this long are candidate unit boundaries
-DOUBAO_CHUNK_MIN_UNIT_S = 0.15   # minimum duration assigned to one unit
-# Per-sentence tempo is off: speeding each sentence before the mix made its timbre unstable. Narration stays
-# natural speed through the timeline; the whole cut is sped up once after rendering (final_cut_tempo), video
-# and audio together, pitch preserved.
-DOUBAO_TEMPO = {"text-to-audio": 1.0, "voice-clone": 1.0}
-# Whole-cut delivery pace, applied once after render (setpts + atempo). 1.0 = natural speed; the timbre
-# profile already carries the pace, so the default cut is natural.
-FINAL_CUT_TEMPO_MIN, FINAL_CUT_TEMPO_MAX = 1.0, 2.0
-FINAL_CUT_TEMPO_DEFAULT = 1.0
-
-
-def final_cut_tempo() -> float:
-    raw = os.environ.get("AI_DAILY_OUTPUT_TEMPO")
-    if not raw:
-        return FINAL_CUT_TEMPO_DEFAULT
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return FINAL_CUT_TEMPO_DEFAULT
-    if not (FINAL_CUT_TEMPO_MIN <= value <= FINAL_CUT_TEMPO_MAX):
-        return FINAL_CUT_TEMPO_DEFAULT
-    return value
+# Long takes: one request reads up to ~120 s, and one long take keeps timbre and energy steadier than
+# stitched short ones. The edition is split only between stories (hook joins the first headline, the
+# outro joins the last story) into as few takes as possible, balanced in length: the number of takes is
+# ceil(estimate / TARGET), and every take's estimate x SAFETY must stay under MAX. The program cuts each
+# take back into sentences at its pauses; a take that cannot be cut (or came back truncated) is asked
+# again in two halves (between stories where possible), down to single sentences.
+DOUBAO_TAKE_TARGET_SECONDS = float(os.environ.get("AI_DAILY_DOUBAO_TAKE_SECONDS", "100"))
+DOUBAO_TAKE_MAX_SECONDS = 120.0
+DOUBAO_TAKE_SAFETY = 1.15
+DOUBAO_STORY_BREAK = "\n"            # between two stories inside one take: invites a longer pause
+DOUBAO_RATE_LIMIT_WAIT_SECONDS = 10
+# Speaking rate in sentence-weight units per second (a Han character = 1, see voice.sentence_weight),
+# natural pauses inside a take included. Measured on every finished take and kept in
+# outputs/_state/doubao_speech_rate.json (median of the last DOUBAO_RATE_HISTORY takes); this default is
+# used until then (2026-11-04 edition: ~5.3 without pauses).
+DOUBAO_SPEECH_RATE_DEFAULT = 5.0
+DOUBAO_RATE_HISTORY = 10
+DOUBAO_RATE_BOUNDS = (3.0, 9.0)       # a measurement outside this range is ignored
+# Every Doubao answer starts with a fixed spoken tag "内容由豆包AI生成": ~0.32 s silence, the tag (ends
+# ~2.25 s), 0.27-0.46 s silence, then the text. The cut is the end of the first pause of at least
+# MIN_GAP that starts inside the window; no such pause -> nothing is cut and selfcheck warns.
+DOUBAO_WATERMARK_WINDOW = (1.6, 3.0)  # seconds from the start of the answer where the tag may end
+DOUBAO_WATERMARK_MIN_GAP = 0.18
+DOUBAO_WATERMARK_SECONDS = 2.7        # tag + pauses, used in the take-length estimate
 # Optional hard stop: an edition with fewer stories than this is not produced (0 = off, CLI --min-stories).
 MIN_STORIES = int(os.environ.get("AI_DAILY_MIN_STORIES", "0"))
 

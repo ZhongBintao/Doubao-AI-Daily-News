@@ -103,7 +103,7 @@ def make_covers(run_dir: Path, run_date: date, final_plan: Mapping[str, Any], du
     results: dict[str, Any] = {}
     for ratio, (width, height) in RATIOS.items():
         page = out_dir / f"cover-{ratio}.html"
-        page.write_text(cover_html(ratio, run_date=run_date, final_plan=final, font_uri=font.resolve().as_uri() if font.is_file() else "",
+        page.write_text(cover_html(ratio, run_date=run_date, final_plan=final_plan, font_uri=font.resolve().as_uri() if font.is_file() else "",
                                    logo_uri=logo, duration=duration), encoding="utf-8")
         png = out_dir / f"{ratio}.png"
         if not chrome:

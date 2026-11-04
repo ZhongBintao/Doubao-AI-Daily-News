@@ -16,7 +16,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "AI Daily News Studio",
-    "shortDescription": "把 AIHOT 当天重磅 AI 资讯做成竖屏资讯视频（上限 3 分钟）与发布包",
+    "shortDescription": "把 AIHOT 当天重磅 AI 资讯做成竖屏资讯视频与发布包",
     "longDescription": "从 AIHOT 精选、日报与实时热点中计算重磅分并去重，生成开头 3 秒钩子、头条卡片与快讯的竖屏视频（逐句配音、字幕与卡片同步、-16 LUFS 混音），并产出 3:4/9:16 封面和 TikTok/小红书文案；每一步都有自动兜底。",
     "developerName": "AI Daily News Studio",
     "category": "Creativity",

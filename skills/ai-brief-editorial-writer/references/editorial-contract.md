@@ -35,7 +35,6 @@
 | 头条 `narration` | 每句 ≤42 字、句末“。！？”；`card` 为 1 起的整数，非递减，覆盖每张卡；合计落在 `budget.headline_narration` |
 | 快讯 `point` / `why` | 各 ≤60 字，可含一对【】；`budget.flash_sentences` 下限 ≥2 时 `why` 必填，且不能与 point 重复 |
 | 快讯 `narration` | 句数落在 `budget.flash_sentences`；`card` 可选，1 = point、2 = why；合计落在 `budget.flash_narration` |
-| 全片 | 钩子 + 全部旁白 ≤900 字（约 3 分钟） |
 
 `budget` 随素材多少浮动（`config.STORY_BUDGETS`）：
 

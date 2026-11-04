@@ -139,7 +139,7 @@ def budgets() -> dict[str, Any]:
         "card_angle_choices": list(CARD_ANGLES), "card_depth_angles": list(C.CARD_DEPTH_ANGLES),
         "card_headline": C.BUDGET_CARD_HEADLINE_MAX, "card_body": C.BUDGET_CARD_BODY_MAX,
         "sentence": C.BUDGET_SENTENCE_MAX, "flash_point": C.BUDGET_FLASH_POINT_MAX, "flash_why": C.BUDGET_FLASH_WHY_MAX,
-        "total_narration": C.BUDGET_TOTAL_NARRATION_MAX, "max_headlines": C.RUNDOWN_MAX_HEADLINES, "max_flashes": C.RUNDOWN_MAX_FLASHES,
+        "max_headlines": C.RUNDOWN_MAX_HEADLINES, "max_flashes": C.RUNDOWN_MAX_FLASHES,
         "per_story": "每条新闻自己的字数范围见 pool[].budget（素材越多，要求讲得越多）",
     }
 
@@ -176,7 +176,6 @@ def build_task(run_date: date, selection: Mapping[str, Any], *, plan_path: Path,
         "run_date": run_date.isoformat(),
         "mode": selection.get("mode"),
         "estimated_seconds": selection.get("estimated_seconds"),
-        "max_seconds": C.RUNDOWN_MAX_SECONDS,
         "output_path": str(plan_path),
         "check_command": check_command,
         "steps": TASK_STEPS,
@@ -360,7 +359,6 @@ def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
     actual = [(str(s.get("item_id")), str(s.get("role"))) for s in stories if isinstance(s, Mapping)]
     if actual != expected:
         errors.append("stories：顺序和 picks 不一致。必须先按 picks.headlines 顺序写头条（role=headline），再按 picks.flashes 顺序写快讯（role=flash）。")
-    total = 0
     seen_titles: list[str] = []
     for index, story in enumerate(stories):
         prefix = f"stories[{index}]"
@@ -395,7 +393,6 @@ def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
             _check_text(errors, path, text, maximum=C.BUDGET_SENTENCE_MAX, terminal=True)
             texts.append((path, str(text or "")))
             story_units += units(text)
-        total += story_units
         if story.get("role") == "headline":
             cards = story.get("cards")
             lo, hi = budget.get("cards") or (C.STORY_BUDGETS["thin"]["cards"])
@@ -467,9 +464,6 @@ def validate_plan(plan: Any, selection: Mapping[str, Any]) -> list[str]:
                 bad = _unsupported_tokens(text, material)
                 if bad:
                     errors.append(f"{path}：这些数字或英文在该新闻素材里找不到：{'、'.join(bad)}。请改成素材里的原样写法。")
-    total += units(hook.get("text"))
-    if total > C.BUDGET_TOTAL_NARRATION_MAX:
-        errors.append(f"全片旁白合计超过 {C.BUDGET_TOTAL_NARRATION_MAX} 字（约 {C.RUNDOWN_MAX_SECONDS / 60:.0f} 分钟，当前 {total} 字），请减少快讯条数或删减旁白。")
     return errors
 
 
@@ -482,14 +476,21 @@ _WHY = re.compile(r"若|意味|将使|有望|影响|担忧|压力|风险|首次|
 _HOW = re.compile(r"通过|采用|基于|架构|方法|方式|利用|由.{0,8}(层|模块)")
 
 
+_URL = re.compile(r"(?:https?://|www\.)[A-Za-z0-9\-._~:/?#\[\]@!$&'*+;=%]+")
+
+
 def _sentences(text: str) -> list[str]:
-    parts = [p.strip() for p in _SENT_SPLIT.split(re.sub(r"\s+", " ", str(text or ""))) if p.strip()]
+    text = _URL.sub("", str(text or ""))   # links never go on screen or into the voice-over
+    text = re.sub(r"[（(]\s*[）)]", "", text)
+    text = re.sub(r"[：:]\s*(?=[，,。；;）)]|$)", "", text)
+    parts = [p.strip() for p in _SENT_SPLIT.split(re.sub(r"\s+", " ", text)) if p.strip()]
     return [re.sub(r"[；;]$", "。", p) for p in parts]
 
 
 def _clauses(text: str) -> list[str]:
-    # 、 joins list items ("电力公司、监管机构"), so it is never a cut point.
-    return [p for p in re.split(r"(?<=[，,：:])", text) if p.strip()]
+    # 、 joins list items ("电力公司、监管机构"), so it is never a cut point; neither is the ASCII
+    # comma or colon inside a number ("1,024", "16:9").
+    return [p for p in re.split(r"(?<=[，：])|(?<=[,:])(?!\d)", text) if p.strip()]
 
 
 def _fit(text: str, maximum: int, *, terminal: bool = False) -> str:
@@ -508,8 +509,13 @@ def _fit(text: str, maximum: int, *, terminal: bool = False) -> str:
         if units(out) < max(6, maximum // 3):
             out = _hard_cut(text, maximum - (1 if terminal else 0))
     out = out.rstrip("，,：:、；; ")
+    for left, right in (("（", "）"), ("(", ")")):
+        if out.count(left) > out.count(right):   # never end inside a bracket
+            out = out[:out.rfind(left)].rstrip("，,：:、；; ")
     if terminal and not _TERMINAL.search(out):
         out = out.rstrip("。.") + "。"
+        if units(out) > maximum and maximum > 2:   # the added full stop counts too: fit again one shorter
+            return _fit(text, maximum - 1, terminal=True)
     elif not terminal:
         out = out.rstrip("。")
     return out
@@ -787,19 +793,13 @@ def fallback_plan(selection: Mapping[str, Any]) -> dict[str, Any]:
         "hook": {"text": _mark_number(_fit(hook_source, C.BUDGET_HOOK_MAX)), "keyfact": _fit(first_sentences[0], C.BUDGET_KEYFACT_MAX)},
         "stories": [],
     }
-    used_total = units(plan["hook"]["text"])
     for item_id in headlines:
         story = _fallback_headline(item_id, materials[item_id])
         plan["stories"].append(story)
-        used_total += sum(units(n["text"]) for n in story["narration"])
     for item_id in flashes:
         story = _fallback_flash(item_id, materials[item_id])
-        cost = sum(units(n["text"]) for n in story["narration"])
-        if used_total + cost > C.BUDGET_TOTAL_NARRATION_MAX:
-            continue
         plan["picks"]["flashes"].append(item_id)
         plan["stories"].append(story)
-        used_total += cost
     return plan
 
 

@@ -543,8 +543,8 @@ def plan_rundown(clusters: list[EventCluster]) -> dict[str, Any]:
       material to tell it in depth; at most RUNDOWN_MAX_HEADLINES;
     * flash: everything else above HEAT_FLASH_THRESHOLD (heavy-but-thin events
       included); at most RUNDOWN_MAX_FLASHES, or RUNDOWN_QUIET_FLASHES on a quiet day;
-    * the estimated length is capped at RUNDOWN_MAX_SECONDS by dropping the
-      weakest flashes first, then the weakest extra headline.
+    * there is no overall time cap: the caps on headlines and flashes and the
+      per-story budgets bound the length (``estimated_seconds`` is informational).
 
     Thresholds use the raw heat; ranking inside them uses heat + a material
     bonus (``RUNDOWN_DEPTH_BONUS``), so when two events are close in heat the
@@ -578,9 +578,6 @@ def plan_rundown(clusters: list[EventCluster]) -> dict[str, Any]:
         return round(4.0 + 3.0 + sum(M.estimate_seconds(k.budget, "headline") for k in headlines)
                      + sum(M.estimate_seconds(k.budget, "flash") for k in flashes), 1)
 
-    while estimate() > C.RUNDOWN_MAX_SECONDS and (flashes or len(headlines) > 1):
-        victim = flashes.pop() if flashes else headlines.pop()
-        dropped.append({"item_id": victim.lead.item_id, "title": victim.lead.title, "heat": victim.heat, "reason": "超出 3 分钟时长上限"})
     pool = [k for k in fresh][: C.CANDIDATE_POOL_SIZE]
     for k in headlines + flashes:
         if k not in pool:
@@ -605,7 +602,7 @@ def select_edition(snapshot: Mapping[str, Any], aired: Iterable[Mapping[str, Any
         "mode": rundown["mode"],
         "heavy_count": rundown["heavy_count"],
         "thresholds": {"heavy": C.HEAT_HEAVY_THRESHOLD, "flash": C.HEAT_FLASH_THRESHOLD},
-        "limits": {"headlines": C.RUNDOWN_MAX_HEADLINES, "flashes": C.RUNDOWN_MAX_FLASHES, "seconds": C.RUNDOWN_MAX_SECONDS},
+        "limits": {"headlines": C.RUNDOWN_MAX_HEADLINES, "flashes": C.RUNDOWN_MAX_FLASHES},
         "estimated_seconds": rundown["estimated_seconds"],
         "dropped": rundown["dropped"],
         "recommended": {

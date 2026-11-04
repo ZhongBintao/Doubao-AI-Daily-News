@@ -156,18 +156,6 @@ else
   warn "未找到 .user_skills 目录，跳过 skill 同步：$USER_SKILLS"
 fi
 
-# --- 6b. 语音克隆参考音频检查 ----------------------------------------------
-# example-audio.mp3 随仓库分发，是语音克隆的音色参考。云电脑重置后
-# git pull 即可恢复。如果缺失则警告（不阻断，因为 text-to-audio 模式
-# 仍可作为备选）。
-REF_AUDIO="$PROJECT_DIR/example-audio.mp3"
-if [ -f "$REF_AUDIO" ]; then
-  REF_SIZE=$(stat -c%s "$REF_AUDIO" 2>/dev/null || stat -f%z "$REF_AUDIO" 2>/dev/null || echo 0)
-  info "参考音频: example-audio.mp3 ($((REF_SIZE / 1024)) KB)"
-else
-  warn "参考音频 example-audio.mp3 缺失，语音克隆将不可用（git pull 可恢复）"
-fi
-
 # --- 6c. 磁盘空间检查 -------------------------------------------------------
 # 视频渲染需要约 500MB-1GB 临时空间。低于 500MB 时警告。
 if command -v df >/dev/null 2>&1; then

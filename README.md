@@ -1,11 +1,11 @@
 # AI每日早报 · AI Daily News（v6 竖屏版）
 
-每天从 [AIHOT](https://aihot.news) 选出真正的重磅 AI 资讯，自动生成一条 **1080×1920 的中文竖屏资讯视频**（时长随内容决定，上限 3 分钟）（TikTok / 小红书），附 3:4 与 9:16 封面和两平台发布文案。
+每天从 [AIHOT](https://aihot.news) 选出真正的重磅 AI 资讯，自动生成一条 **1080×1920 的中文竖屏资讯视频**（时长随内容决定，不设总时长上限）（TikTok / 小红书），附 3:4 与 9:16 封面和两平台发布文案。
 
 - 开头 3 秒钩子：第一帧就是头条主角与一句抓人的话
 - 重磅选题：AIHOT 精选评分 + 日报 + 实时多源热点 + 事件综述 → 站内补充素材 → 重磅分 → 同事件合并 → 已播去重 → 头条 ≤3 条 + 快讯 ≤5 条（按当天内容决定）
 - 照顾能力较弱的模型：AI 只做“选择题 + 填空题”，有示范案例和逐字段中文报错；每一步都有自动兜底，保证每天出片
-- 逐句配音：豆包语音克隆或 edge-tts；画面、卡片高亮、字幕按句精确对齐
+- 配音：豆包几段长录音（自然语速，程序去水印并切回单句）或 edge-tts；画面、卡片高亮、字幕按句精确对齐
 - 混音：音乐低于人声约 18 dB，说话时自动再压低；−16 LUFS
 - 设计记录：[docs/design/v6-vertical-template.md](docs/design/v6-vertical-template.md)
 
@@ -28,7 +28,7 @@ OpenMontage/.venv/bin/python -m ai_morning_brief.daily --date 2026-10-30 --statu
 | `aihot_v2.py` | AIHOT 2.0 JSON API 客户端（精选、日报、热点、事件） |
 | `newsroom.py` | 期号窗口、重磅分、同事件聚类、已播记录、节目单 |
 | `director.py` | 导演稿任务、校验器（中文报错）、兜底稿、逐句单元 |
-| `voice.py` | 逐句配音（豆包交接 / edge-tts）、静音裁剪、对齐 |
+| `voice.py` | 豆包长录音分段、去水印、切回单句（交接）/ edge-tts、对齐 |
 | `timeline.py` | 逐句时间轴、场景/卡片事件、字幕切分 |
 | `audio_mix.py` | 音乐分段对齐、侧链闪避、两遍 loudnorm |
 | `render.py` + `template/v6/index.html` | HyperFrames 工作区、Chrome 预排版、渲染与校验 |

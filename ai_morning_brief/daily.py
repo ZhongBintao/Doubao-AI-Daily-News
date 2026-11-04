@@ -67,14 +67,13 @@ def _read(path: Path) -> Any:
 
 class Run:
     def __init__(self, run_date: date, output_root: Path, *, tts: str, no_agent: bool, fixture_dir: Path | None = None,
-                 tts_mode: str | None = None, min_stories: int = C.MIN_STORIES):
+                 min_stories: int = C.MIN_STORIES):
         self.date = run_date
         self.root = output_root
         self.dir = output_root / run_date.isoformat()
         self.art = self.dir / "artifacts"
         self.tts = tts
         self.no_agent = no_agent
-        self.tts_mode = tts_mode or C.DOUBAO_TTS_MODE
         self.min_stories = min_stories
         self.fixture_dir = fixture_dir
         self.state_path = self.dir / "run_state.json"
@@ -230,37 +229,31 @@ def stage_voice(run: Run) -> dict[str, Any]:
     manifest_path = run.art / "tts_manifest.json"
     manifest = _read(manifest_path)
     expected = [voice.spoken_for(u, provider) for u in final["units"]]
-    mode = run.tts_mode if provider == "doubao" else None
     if (not manifest or manifest.get("provider") != provider or [u["spoken_text"] for u in manifest.get("units") or []] != expected
-            or (manifest.get("doubao") or {}).get("mode") != mode):
-        manifest = voice.build_manifest(run.dir, final, provider, mode=mode)
+            or (provider == "doubao" and manifest.get("takes") is None)):
+        manifest = voice.build_manifest(run.dir, final, provider, state_dir=run.root / "_state")
     if provider == "edge":
         failed = voice.synthesize_edge(run.dir, manifest)
         if failed:
             raise RuntimeError(f"edge-tts 合成失败：{', '.join(failed)}（检查网络/代理）")
-    elif manifest.get("chunked"):
-        missing = voice.missing_chunks(manifest)
-        if missing:
-            block = manifest.get("doubao") or {}
-            how = ('逐组调用 text_to_audio_plus，请求 = request_template（voice 用固定音色描述，spoken_text 用该 chunk 的 text 全文），'
-                   '每组一次调用，保存到该 chunk 的 output_path')
-            _print_handoff("voice", [f"读取配音清单：{manifest_path}", how,
-                                     f"按 doubao.instructions 执行：{block.get('instructions')}",
-                                     f"还缺 {len(missing)} 组：{', '.join(missing)}",
-                                     "豆包配音不可用时：加 --tts edge 重新运行，自动改用 edge-tts。"])
-            raise Handoff("voice")
     else:
-        missing = voice.missing_units(manifest)
-        if missing:
-            tool = (manifest.get("doubao") or {}).get("tool", "")
-            how = (f"每条调用 text_to_audio_plus，请求：\"{C.DOUBAO_TTS_VOICE_PROFILE}\"。朗读以下文字：\"<该条 spoken_text>\"（英文和阿拉伯数字照原样读）"
-                   if tool == "text_to_audio_plus" else "每条调用 audio_to_audio_plus，@音频1 = example-audio.mp3，prompt 见 doubao.prompt_template")
-            _print_handoff("voice", [f"读取配音清单：{manifest_path}", how, "每条一句，保存到该条 output_path；按 doubao.instructions 执行。",
-                                     f"还缺 {len(missing)} 条：{', '.join(missing)}",
-                                     "豆包配音不可用时：加 --tts edge 重新运行，自动改用 edge-tts。"])
+        todo = voice.prepare_doubao(run.dir, manifest_path, manifest)
+        if todo:
+            again = [t for t in manifest.get("takes") or [] if t.get("replaced_by")]
+            lines = [f"读取配音清单：{manifest_path}，逐条处理 todo（共 {len(todo)} 次请求）。",
+                     f"调用 {C.DOUBAO_TTS_TOOL}，请求 = 该条 request（固定音色描述 + 原文，已填好，原样发送，不要加语速要求）。",
+                     f"把返回的音频原样保存到该条 output_path。一次只发一条，不要并发；遇到“合成太频繁”等 {C.DOUBAO_RATE_LIMIT_WAIT_SECONDS} 秒再重试同一条（最多 3 次）。",
+                     "一条 todo 是几条新闻连读的一整段（每段约 1–2 分钟），不要拆开或合并；英文和阿拉伯数字照原样读。"
+                     "开头的“内容由豆包AI生成”和切回单句都由程序自动处理。"]
+            if again:
+                lines.append(f"其中有 {len(again)} 段上次没能切开或没读完（{', '.join(t['take_id'] for t in again)}），已拆成更短的两段重新请求。")
+            lines += [f"待处理：{', '.join(t['id'] for t in todo)}", "豆包配音不可用时：加 --tts edge 重新运行，自动改用 edge-tts。"]
+            _print_handoff("voice", lines)
             raise Handoff("voice")
     result = voice.finalize(run.dir, manifest)
-    return {"provider": provider, "units": len(result["units"]), "speech_seconds": result["total_speech_seconds"]}
+    takes = result.get("doubao_takes") or {}
+    return {"provider": provider, "units": len(result["units"]), "speech_seconds": result["total_speech_seconds"],
+            **({"doubao_requests": takes.get("requests"), "watermark_not_found": takes.get("watermark_not_found")} if takes else {})}
 
 
 def stage_mix(run: Run) -> dict[str, Any]:
@@ -278,16 +271,15 @@ def stage_render(run: Run) -> dict[str, Any]:
     layout = render.layout_prepass(workspace)
     _write(run.art / "layout_report.json", layout)
     render.render(workspace, run.video_path)
-    tempo_report = render.apply_final_cut_tempo(run.video_path, srt_path=run.dir / "assets" / "subtitles" / "subtitles.srt")
-    _write(run.art / "tempo_report.json", tempo_report)
     probe = render.probe(run.video_path)
     _write(run.art / "video_probe.json", probe)
-    return {"video": str(run.video_path.relative_to(run.dir)), "layout": layout.get("status"), "tempo": tempo_report.get("status"), **probe}
+    return {"video": str(run.video_path.relative_to(run.dir)), "layout": layout.get("status"), **probe}
 
 
 def stage_selfcheck(run: Run) -> dict[str, Any]:
     report = selfcheck.run(run.dir, run.video_path, _read(run.art / "video_probe.json") or {}, _read(run.art / "timeline.json") or {},
-                           layout=_read(run.art / "layout_report.json"), mix=_read(run.art / "mix_report.json"))
+                           layout=_read(run.art / "layout_report.json"), mix=_read(run.art / "mix_report.json"),
+                           voice=_read(run.art / "voice_manifest.json"))
     critical = {"resolution", "audio_stream", "first_frame_has_content"}
     failed = [c for c in report["checks"] if c["status"] != "pass"]
     if any(c["name"] in critical for c in failed):
@@ -402,8 +394,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", dest="run_date", help="期号日期 YYYY-MM-DD；默认北京时间今天")
     parser.add_argument("--output-root", type=Path, default=C.DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--tts", choices=C.TTS_PROVIDERS, default=C.DEFAULT_TTS_PROVIDER, help="配音：doubao（Agent 交接）或 edge（自动）")
-    parser.add_argument("--tts-mode", choices=C.DOUBAO_TTS_MODES, default=C.DOUBAO_TTS_MODE,
-                        help="豆包配音方式：text-to-audio（默认，text_to_audio_plus + 固定音色描述）或 voice-clone（audio_to_audio_plus + example-audio.mp3）")
     parser.add_argument("--min-stories", type=int, default=C.MIN_STORIES, help="可播新闻少于这个条数就终止（退出码 4），不用旧闻凑数；默认 0 不限制")
     parser.add_argument("--no-agent", action="store_true", help="不交接给 Agent：写稿用兜底稿，配音用 edge")
     parser.add_argument("--force", action="store_true", help="清除状态，从头重跑")
@@ -423,7 +413,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.force and (run_dir / "run_state.json").is_file():
         (run_dir / "run_state.json").unlink()
     run = Run(run_date, args.output_root, tts=args.tts, no_agent=args.no_agent, fixture_dir=args.fixture_dir,
-              tts_mode=args.tts_mode, min_stories=args.min_stories)
+              min_stories=args.min_stories)
     if args.status:
         print_status(run)
         return EXIT_OK

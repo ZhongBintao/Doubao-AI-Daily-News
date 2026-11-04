@@ -1,38 +1,44 @@
-"""v6 per-sentence narration audio.
+"""v6 narration audio: one audio file per sentence, read in a few long takes.
 
-Every narration unit (one sentence) is one audio file. Two providers:
+Every narration unit (one sentence) ends up as one audio file, so pictures,
+card highlights and captions follow the voice sentence by sentence. Two providers:
 
-* ``doubao`` — agent handoff, one call per sentence (see the voice skill):
-  ``text-to-audio`` (default) uses ``text_to_audio_plus`` with the fixed voice
-  profile; ``voice-clone`` uses ``audio_to_audio_plus`` with ``example-audio.mp3``.
-  Doubao gets the raw sentence (it reads English and numerals itself); the
-  text-to-audio voice is sped up by ``DOUBAO_TEMPO`` (pitch preserved) at
-  finalize. Timing inside a sentence is proportional (sentences are short).
-* ``edge``   — automatic Microsoft Edge neural TTS (no key). Provides native
-  word boundaries. Also the automatic fallback when no agent is available.
+* ``doubao`` — agent handoff (see the voice skill): ``text_to_audio_plus`` with
+  the fixed voice profile, natural speed. One long take keeps timbre and energy
+  steadier than stitched short ones, so the edition is read in as few *takes* as
+  possible (:func:`plan_takes`): split only between stories, balanced, about
+  ``DOUBAO_TAKE_TARGET_SECONDS`` each and never over ``DOUBAO_TAKE_MAX_SECONDS``.
+  Every Doubao answer starts with a spoken tag ("内容由豆包AI生成") that
+  :func:`watermark_cut` removes; :func:`prepare_doubao` then cuts the take back
+  into sentences at its pauses (:func:`split_batch`). A take that cannot be cut,
+  or came back truncated, is asked again in two halves, down to single sentences.
+  Cut pieces keep their natural pauses, so the timeline can lay a take back down
+  exactly as it was read.
+* ``edge`` — automatic Microsoft Edge neural TTS (no key), one call per
+  sentence with native word boundaries. Also the automatic fallback.
 
-``finalize`` converts every unit to 48 kHz mono WAV, trims leading/trailing
-silence exactly, and writes per-unit word timings to ``alignments/``.
+``finalize`` converts every unit to 48 kHz mono WAV and writes per-unit word
+timings to ``alignments/``. Edge sentences are trimmed; pieces of a Doubao take
+are kept whole and report the silence they carry (``lead`` / ``tail``).
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import ssl
+import statistics
 import subprocess
 import time
 from array import array
 from pathlib import Path
-from typing import Any, Mapping
-
-import numpy as np
+from typing import Any, Mapping, Sequence
 
 from . import config as C
 
 SAMPLE_RATE = 48000
-DOUBAO_PROMPT = "用参考音频的音色、语速和朗读风格，清晰、有节奏地朗读以下文字，语气自然有精神，不增删字词，无背景音无杂音：{spoken_text}"
 
 
 class VoiceError(RuntimeError):
@@ -47,181 +53,589 @@ def raw_audio_path(run_dir: Path, unit_id: str, suffix: str = ".mp3") -> Path:
     return run_dir / "assets" / "audio" / "raw" / f"{unit_id}{suffix}"
 
 
-def chunk_raw_path(run_dir: Path, chunk_id: str, suffix: str = ".wav") -> Path:
-    return run_dir / "assets" / "audio" / "raw" / f"{chunk_id}{suffix}"
-
-
-def chunked_synthesis(provider: str, mode: str | None) -> bool:
-    """Only Doubao text-to-audio uses chunked synthesis; voice-clone and edge stay per-unit."""
-
-    return bool(C.DOUBAO_CHUNKED) and provider == "doubao" and mode == "text-to-audio"
-
-
-def plan_chunks(units: list[Mapping[str, Any]], max_chars: int, block_of: Mapping[str, str] | None = None) -> list[list[Mapping[str, Any]]]:
-    """Group ordered units into long chunks.
-
-    Units are first grouped by their scene block (each headline story is its own block; the hook merges
-    into the first story; all flashes and the outro share one block). A block that exceeds the char budget
-    is then hard-split. This keeps the three headline stories separate and the short flash run continuous.
-    """
-
-    block_of = block_of or {}
-    chunks: list[list[Mapping[str, Any]]] = []
-    current: list[Mapping[str, Any]] = []
-    current_chars = 0
-    for unit in units:
-        size = len(str(unit["display_text"]))
-        new_block = bool(current and block_of.get(unit["scene_id"]) != block_of.get(current[-1]["scene_id"]))
-        if current and (new_block or current_chars + size > max_chars):
-            chunks.append(current)
-            current, current_chars = [], 0
-        current.append(unit)
-        current_chars += size
-    if current:
-        chunks.append(current)
-    return chunks
-
-
 def spoken_for(unit: Mapping[str, Any], provider: str) -> str:
     """Text sent to the TTS: Doubao reads the raw sentence; edge gets the normalised spoken text."""
 
     return str(unit["display_text"] if provider == "doubao" else unit["spoken_text"])
 
 
-def doubao_mode(mode: str | None = None) -> str:
-    mode = mode or C.DOUBAO_TTS_MODE
-    if mode not in C.DOUBAO_TTS_MODES:
-        raise VoiceError(f"unknown Doubao TTS mode {mode!r}; choose one of {C.DOUBAO_TTS_MODES}")
-    return mode
+# ---------------------------------------------------------------------------
+# spoken length and speaking rate
+# ---------------------------------------------------------------------------
+_LATIN = re.compile(r"[A-Za-z]+")
+_DIGITS = re.compile(r"\d+(?:\.\d+)?")
 
 
-def _doubao_block(mode: str, reference: Path, chunked: bool = False) -> dict[str, Any]:
-    if mode == "voice-clone":
-        return {
-            "mode": mode, "tool": "audio_to_audio_plus", "reference_audio": str(reference), "prompt_template": DOUBAO_PROMPT,
-            "tempo": C.DOUBAO_TEMPO[mode],
-            "instructions": "逐条处理 units：用 audio_to_audio_plus，@音频1 = reference_audio，prompt = prompt_template（把 {spoken_text} 换成该条 spoken_text），保存到该条 output_path。每条只读一句，不要合并。",
-        }
-    base = {
-        "mode": mode, "tool": "text_to_audio_plus", "voice": C.DOUBAO_TTS_VOICE_PROFILE, "request_template": C.DOUBAO_TTS_REQUEST,
-        "tempo": C.DOUBAO_TEMPO[mode], "chunked": chunked,
+def sentence_weight(text: str) -> float:
+    """Rough spoken length in Chinese-syllable units.
+
+    A Chinese character is one syllable; an English word takes about one syllable per two
+    letters (Anthropic ~ 4, GPT ~ 3 letters spelled); a number is read digit by digit or as
+    a short Chinese numeral (~1 per digit); "%" adds "百分之"; a comma adds a short pause.
+    """
+
+    weight = 0.0
+    for word in _LATIN.findall(text):
+        weight += len(word) if word.isupper() and len(word) <= 4 else max(1.0, len(word) / 2)
+    for number in _DIGITS.findall(text):
+        weight += len(number.replace(".", "")) + (1 if "." in number else 0)
+    rest = _DIGITS.sub("", _LATIN.sub("", text))
+    weight += sum(1 for ch in rest if "一" <= ch <= "鿿")
+    weight += 3 * text.count("%") + 1.5 * sum(text.count(mark) for mark in "，、；：,;:")
+    return max(weight, 1.0)
+
+
+_sentence_weight = sentence_weight   # older name
+
+
+def rate_state_path(state_dir: Path) -> Path:
+    return state_dir / "doubao_speech_rate.json"
+
+
+def load_speech_rate(state_dir: Path | None) -> float:
+    """Median measured Doubao rate (weight units per second, pauses included) or the default."""
+
+    if state_dir is None:
+        return C.DOUBAO_SPEECH_RATE_DEFAULT
+    rates = [float(m["rate"]) for m in _read_json(rate_state_path(state_dir)).get("measurements") or []
+             if isinstance(m, Mapping) and C.DOUBAO_RATE_BOUNDS[0] <= float(m.get("rate") or 0) <= C.DOUBAO_RATE_BOUNDS[1]]
+    return round(statistics.median(rates[-C.DOUBAO_RATE_HISTORY:]), 3) if rates else C.DOUBAO_SPEECH_RATE_DEFAULT
+
+
+def record_speech_rate(state_dir: Path, run_date: str, measurements: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the measured rate of every finished take (one entry per run date + take, newest last)."""
+
+    path = rate_state_path(state_dir)
+    known = [m for m in _read_json(path).get("measurements") or [] if isinstance(m, Mapping)]
+    fresh = [{"date": run_date, "take": m["take"], "rate": m["rate"], "seconds": m.get("seconds")} for m in measurements
+             if C.DOUBAO_RATE_BOUNDS[0] <= float(m["rate"]) <= C.DOUBAO_RATE_BOUNDS[1]]
+    keys = {(m["date"], m["take"]) for m in fresh}
+    merged = [m for m in known if (m.get("date"), m.get("take")) not in keys] + fresh
+    merged = merged[-max(C.DOUBAO_RATE_HISTORY * 5, 50):]
+    _write_manifest(path, {"unit": "sentence-weight per second, natural pauses included", "measurements": merged})
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# planning the takes
+# ---------------------------------------------------------------------------
+def story_groups(units: Sequence[Mapping[str, Any]], kind_of: Mapping[str, str] | None = None) -> list[list[Mapping[str, Any]]]:
+    """Consecutive units grouped by story: the hook joins the story after it, the outro the story before it."""
+
+    kind_of = kind_of or {}
+    groups: list[list[Mapping[str, Any]]] = []
+    last = object()
+    for unit in units:
+        if unit["scene_id"] != last:
+            groups.append([])
+            last = unit["scene_id"]
+        groups[-1].append(unit)
+
+    def kind(group: list[Mapping[str, Any]]) -> str:
+        scene = group[0]["scene_id"]
+        return kind_of.get(scene) or ("hook" if scene == "hook" else "outro" if scene == "outro" else "story")
+
+    merged: list[list[Mapping[str, Any]]] = []
+    carry: list[Mapping[str, Any]] = []
+    for group in groups:
+        if kind(group) == "hook":
+            carry.extend(group)
+        elif kind(group) == "outro" and merged:
+            merged[-1].extend(carry + group)
+            carry = []
+        else:
+            merged.append(carry + group)
+            carry = []
+    if carry:
+        merged.append(carry)
+    return merged
+
+
+def _balanced_parts(weights: list[float], k: int) -> list[int]:
+    """Split a sequence into k contiguous parts minimising the largest part; returns the part sizes."""
+
+    n = len(weights)
+    k = max(1, min(k, n))
+    prefix = [0.0]
+    for w in weights:
+        prefix.append(prefix[-1] + w)
+    inf = float("inf")
+    best = [[inf] * (n + 1) for _ in range(k + 1)]
+    back = [[0] * (n + 1) for _ in range(k + 1)]
+    best[0][0] = 0.0
+    for parts in range(1, k + 1):
+        for end in range(1, n + 1):
+            for start in range(parts - 1, end):
+                value = max(best[parts - 1][start], prefix[end] - prefix[start])
+                if value < best[parts][end]:
+                    best[parts][end], back[parts][end] = value, start
+    sizes, end = [], n
+    for parts in range(k, 0, -1):
+        start = back[parts][end]
+        sizes.append(end - start)
+        end = start
+    return sizes[::-1]
+
+
+def plan_takes(units: Sequence[Mapping[str, Any]], *, rate: float | None = None, kind_of: Mapping[str, str] | None = None,
+               target: float | None = None, max_seconds: float | None = None, safety: float | None = None) -> list[list[str]]:
+    """Group the edition into as few Doubao takes as possible, split only between stories.
+
+    The number of takes is ceil(estimate / target); stories are then spread over them so the
+    longest take is as short as possible. A take whose estimate x safety would pass the engine
+    limit gets one more take; a single story longer than the limit is split between sentences.
+    """
+
+    rate = rate or C.DOUBAO_SPEECH_RATE_DEFAULT
+    target = target or C.DOUBAO_TAKE_TARGET_SECONDS
+    max_seconds = max_seconds or C.DOUBAO_TAKE_MAX_SECONDS
+    safety = safety or C.DOUBAO_TAKE_SAFETY
+    limit = max_seconds / safety - C.DOUBAO_WATERMARK_SECONDS   # seconds of text one take may hold
+
+    def seconds(group: Sequence[Mapping[str, Any]]) -> float:
+        return sum(sentence_weight(str(u["spoken_text"])) for u in group) / rate
+
+    groups: list[list[Mapping[str, Any]]] = []
+    for group in story_groups(units, kind_of):
+        if seconds(group) <= limit or len(group) == 1:
+            groups.append(group)
+            continue
+        weights = [seconds([u]) for u in group]
+        parts = math.ceil(sum(weights) / limit)
+        while True:
+            sizes = _balanced_parts(weights, parts)
+            pieces, at = [], 0
+            for size in sizes:
+                pieces.append(group[at:at + size])
+                at += size
+            if all(seconds(p) <= limit for p in pieces) or parts >= len(group):
+                break
+            parts += 1
+        groups.extend(pieces)
+    if not groups:
+        return []
+    weights = [seconds(g) for g in groups]
+    k = max(1, math.ceil(sum(weights) / target))
+    while True:
+        sizes = _balanced_parts(weights, k)
+        takes, at = [], 0
+        for size in sizes:
+            takes.append([u["unit_id"] for g in groups[at:at + size] for u in g])
+            at += size
+        longest = max(sum(weights[i] for i in range(sum(sizes[:j]), sum(sizes[:j + 1]))) for j in range(len(sizes)))
+        if longest <= limit or k >= len(groups):
+            return takes
+        k += 1
+
+
+def split_in_two(unit_ids: Sequence[str], scene_of: Mapping[str, str], weight_of: Mapping[str, float]) -> list[list[str]]:
+    """Halve a take for a retry: at the story boundary nearest the middle, else at the middle sentence."""
+
+    ids = list(unit_ids)
+    if len(ids) < 2:
+        return [ids]
+    total = sum(weight_of[u] for u in ids)
+    boundaries = [i for i in range(1, len(ids)) if scene_of[ids[i]] != scene_of[ids[i - 1]]] or list(range(1, len(ids)))
+    best = min(boundaries, key=lambda i: abs(sum(weight_of[u] for u in ids[:i]) - total / 2))
+    return [ids[:best], ids[best:]]
+
+
+# ---------------------------------------------------------------------------
+# manifest and handoff
+# ---------------------------------------------------------------------------
+def _doubao_block(rate: float) -> dict[str, Any]:
+    wait = C.DOUBAO_RATE_LIMIT_WAIT_SECONDS
+    return {
+        "tool": C.DOUBAO_TTS_TOOL, "voice": C.DOUBAO_TTS_VOICE_PROFILE, "request_template": C.DOUBAO_TTS_REQUEST,
+        "speech_rate": rate, "take_target_seconds": C.DOUBAO_TAKE_TARGET_SECONDS, "take_max_seconds": C.DOUBAO_TAKE_MAX_SECONDS,
+        "instructions": (f"逐条处理 todo（只有还缺的音频）：用 {C.DOUBAO_TTS_TOOL}，把该条 request 原样发给工具（已填好固定音色描述和原文，"
+                         "不要改写、不要加语速要求），把返回的音频原样保存到该条 output_path。"
+                         f"一次只发一条，不要并发；遇到“合成太频繁”等限流报错，等 {wait} 秒再重试同一条（最多 3 次）。"
+                         "一条 todo 是一整段（几条新闻连读，最长约 2 分钟），不要拆开、不要合并、不增删字词；"
+                         "英文和阿拉伯数字（GPU、RSA-260、552B）照原样读。开头的“内容由豆包AI生成”和整段切回单句都由程序自动处理。"),
     }
-    if chunked:
-        base["instructions"] = (
-            "逐组处理 chunks：对每个 chunk 调用一次 text_to_audio_plus，请求 = request_template（{voice} 换成 voice 字段的固定音色描述，逐字使用；"
-            "{spoken_text} 换成该 chunk 的 text 全文，即其中所有句子原样拼接），保存到该 chunk 的 output_path。英文和阿拉伯数字照原样自然读出，"
-            "不拆单字母、不念成中文数字、不增删字词；不要在请求里要求语速，也不要拆成每句调用。")
-    else:
-        base["instructions"] = (
-            "逐条处理 units：调用 text_to_audio_plus，请求 = request_template（{voice} 换成 voice 字段的固定音色描述，逐字使用；"
-            "{spoken_text} 换成该条 spoken_text 原文），保存到该条 output_path。英文和阿拉伯数字照原样读，不拆单字母、不念成中文数字、"
-            "不增删字词。每条只读一句，不要合并。")
-    return base
 
 
-def build_manifest(run_dir: Path, final_plan: Mapping[str, Any], provider: str, *, mode: str | None = None) -> dict[str, Any]:
+def _doubao_request(block: Mapping[str, Any], text: str) -> str:
+    return str(block["request_template"]).replace("{voice}", str(block["voice"])).replace("{spoken_text}", text)
+
+
+def _take_text(units: Sequence[Mapping[str, Any]]) -> str:
+    out = ""
+    for i, unit in enumerate(units):
+        if i and unit["scene_id"] != units[i - 1]["scene_id"]:
+            out += C.DOUBAO_STORY_BREAK
+        out += str(unit["spoken_text"])
+    return out
+
+
+def _make_take(block: Mapping[str, Any], run_dir: Path, take_id: str, units: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    text = _take_text(units)
+    weight = sum(sentence_weight(str(u["spoken_text"])) for u in units)
+    return {"take_id": take_id, "unit_ids": [u["unit_id"] for u in units], "spoken_text": text, "weight": round(weight, 1),
+            "estimated_seconds": round(weight / float(block["speech_rate"]) + C.DOUBAO_WATERMARK_SECONDS, 1),
+            "request": _doubao_request(block, text), "output_path": str(raw_audio_path(run_dir, take_id, ".wav"))}
+
+
+def build_manifest(run_dir: Path, final_plan: Mapping[str, Any], provider: str, *, speech_rate: float | None = None,
+                   state_dir: Path | None = None) -> dict[str, Any]:
     if provider not in C.TTS_PROVIDERS:
         raise VoiceError(f"unknown TTS provider {provider!r}; choose one of {C.TTS_PROVIDERS}")
-    reference = C.REPO_ROOT / "example-audio.mp3"
-    mode = doubao_mode(mode) if provider == "doubao" else None
-    chunked = chunked_synthesis(provider, mode)
+    path = run_dir / "artifacts" / "tts_manifest.json"
+    previous = _read_json(path)
+    old_units = {str(u.get("unit_id")): u for u in previous.get("units") or []}
     units = []
     for unit in final_plan.get("units") or []:
-        units.append({
+        entry = {
             "unit_id": unit["unit_id"],
             "scene_id": unit["scene_id"],
             "spoken_text": spoken_for(unit, provider),
             "display_text": unit["display_text"],
             "output_path": str(raw_audio_path(run_dir, unit["unit_id"], ".wav" if provider == "doubao" else ".mp3")),
-        })
-    path = run_dir / "artifacts" / "tts_manifest.json"
-    chunks_meta: list[dict[str, Any]] | None = None
-    if chunked:
-        story_scenes = [s["scene_id"] for s in final_plan.get("scenes") or [] if s.get("kind") == "story"]
-        first_story = story_scenes[0] if story_scenes else None
-        block_of: dict[str, str] = {}
-        for scene in final_plan.get("scenes") or []:
-            kind, sid = scene.get("kind"), scene["scene_id"]
-            if kind == "story":
-                block_of[sid] = sid
-            elif kind == "hook":
-                block_of[sid] = first_story or sid
-            else:  # flash and outro share one block
-                block_of[sid] = "__flash__"
-        chunks_meta = []
-        for index, group in enumerate(plan_chunks(units, C.DOUBAO_CHUNK_MAX_CHARS, block_of), 1):
-            chunk_id = f"c{index:02d}"
-            chunks_meta.append({
-                "chunk_id": chunk_id,
-                "unit_ids": [u["unit_id"] for u in group],
-                "text": "".join(str(u["spoken_text"]) for u in group),
-                "output_path": str(chunk_raw_path(run_dir, chunk_id)),
-            })
-        _drop_stale_chunks(run_dir, path, units, chunks_meta)
-    else:
-        _drop_stale_audio(run_dir, path, units)
+        }
+        old = old_units.get(entry["unit_id"]) or {}
+        if old.get("take_id") and old.get("spoken_text") == entry["spoken_text"] and old.get("output_path") == entry["output_path"]:
+            entry["take_id"] = old["take_id"]
+        units.append(entry)
+    _drop_stale_audio(run_dir, previous, units)
+    block = None
+    takes: list[dict[str, Any]] = []
+    if provider == "doubao":
+        rate = speech_rate or load_speech_rate(state_dir if state_dir is not None else run_dir.parent / "_state")
+        block = _doubao_block(rate)
+        kind_of = {s["scene_id"]: s.get("kind", "story") for s in final_plan.get("scenes") or []}
+        # Sentences that already have audio (an earlier, interrupted run) are not asked again.
+        pending = [u for u in units if not _has_audio(u["output_path"])]
+        for u in pending:
+            u.pop("take_id", None)
+        for index, ids in enumerate(plan_takes(pending, rate=rate, kind_of=kind_of), start=1):
+            takes.append(_make_take(block, run_dir, f"t{index:02d}", [u for u in pending if u["unit_id"] in ids]))
+        _drop_stale_audio(run_dir, previous, [], takes)
     manifest = {
         "version": C.V6_VERSION,
         "provider": provider,
-        "chunked": chunked,
         "units": units,
-        "chunks": chunks_meta,
-        "doubao": _doubao_block(mode, reference, chunked) if provider == "doubao" else None,
+        "doubao": block,
+        "takes": takes if block is not None else None,
+        "todo": [],
         "edge": {"voice": C.EDGE_TTS_VOICE, "rate": C.EDGE_TTS_RATE} if provider == "edge" else None,
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    if block is not None:
+        manifest["todo"] = doubao_todo(manifest)
+    _write_manifest(path, manifest)
     return manifest
 
 
-def _drop_stale_chunks(run_dir: Path, manifest_path: Path, units: list[dict[str, Any]],
-                       chunks: list[dict[str, Any]]) -> None:
-    """Delete chunk audio whose content changed, and clean up raw chunks that no longer exist."""
-
+def _read_json(path: Path) -> dict[str, Any]:
     try:
-        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        previous = {}
-    old_text = {c.get("chunk_id"): c.get("text") for c in previous.get("chunks") or []}
-    keep_paths = {c["output_path"] for c in chunks}
-    for chunk in chunks:
-        out = Path(chunk["output_path"])
-        if out.is_file() and old_text.get(chunk["chunk_id"]) != chunk["text"]:
-            out.unlink(missing_ok=True)
-    for raw in (run_dir / "assets" / "audio" / "raw").glob("c*.wav"):
-        if str(raw) not in keep_paths:
-            raw.unlink(missing_ok=True)
-    # per-unit alignments are regenerated from chunks, so stale native alignment files are invalid
-    for unit in units:
-        (run_dir / "artifacts" / "alignments" / f"{unit['unit_id']}.raw.json").unlink(missing_ok=True)
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
-def _drop_stale_audio(run_dir: Path, manifest_path: Path, units: list[dict[str, Any]]) -> None:
-    """Delete audio whose sentence changed, so an edited plan never keeps its old voice-over.
+def _write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    Output paths are keyed by unit id (u01, u02 ...); when a sentence is rewritten
-    the old file would otherwise count as already synthesized.
+
+def _drop_stale_audio(run_dir: Path, previous: Mapping[str, Any], units: list[dict[str, Any]], takes: list[dict[str, Any]] | None = None) -> None:
+    """Delete audio whose text changed, so an edited plan never keeps its old voice-over.
+
+    Output paths are keyed by id (u01 ..., t01 ...); when a sentence is rewritten
+    (or a take is regrouped) the old file would otherwise count as already synthesized.
     """
 
-    try:
-        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        previous = {}
-    old = {str(u.get("output_path")): str(u.get("spoken_text")) for u in previous.get("units") or []}
+    old = {str(u.get("output_path")): str(u.get("spoken_text"))
+           for u in list(previous.get("units") or []) + list(previous.get("takes") or previous.get("batches") or [])}
     for unit in units:
         out = Path(unit["output_path"])
         if out.is_file() and old.get(str(out)) != unit["spoken_text"]:
             out.unlink(missing_ok=True)
+            unit.pop("take_id", None)
             (run_dir / "artifacts" / "alignments" / f"{unit['unit_id']}.raw.json").unlink(missing_ok=True)
+    for take in takes or []:
+        out = Path(take["output_path"])
+        if out.is_file() and old.get(str(out)) != take["spoken_text"]:
+            out.unlink(missing_ok=True)
+
+
+def _has_audio(path: str | Path) -> bool:
+    path = Path(path)
+    return path.is_file() and path.stat().st_size > 0
 
 
 def missing_units(manifest: Mapping[str, Any]) -> list[str]:
-    return [u["unit_id"] for u in manifest.get("units") or [] if not Path(u["output_path"]).is_file() or Path(u["output_path"]).stat().st_size == 0]
+    return [u["unit_id"] for u in manifest.get("units") or [] if not _has_audio(u["output_path"])]
 
 
-def missing_chunks(manifest: Mapping[str, Any]) -> list[str]:
-    return [c["chunk_id"] for c in manifest.get("chunks") or []
-            if not Path(c["output_path"]).is_file() or Path(c["output_path"]).stat().st_size == 0]
+def doubao_todo(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The Doubao requests still needed: one per take whose audio has not been delivered."""
+
+    by_id = {u["unit_id"]: u for u in manifest.get("units") or []}
+    todo: list[dict[str, Any]] = []
+    for take in manifest.get("takes") or []:
+        if take.get("replaced_by") or all(_has_audio(by_id[uid]["output_path"]) for uid in take["unit_ids"]):
+            continue
+        if not _has_audio(take["output_path"]):
+            todo.append({"id": take["take_id"], "sentences": len(take["unit_ids"]), "estimated_seconds": take["estimated_seconds"],
+                         "spoken_text": take["spoken_text"], "request": take["request"], "output_path": take["output_path"]})
+    return todo
+
+
+def prepare_doubao(run_dir: Path, manifest_path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """Strip the tag from every delivered take and cut it back into sentences.
+
+    Returns the requests still needed (also saved as ``todo``). A take that cannot be
+    cut, or came back truncated, is replaced by two halves that are asked again.
+    """
+
+    by_id = {u["unit_id"]: u for u in manifest.get("units") or []}
+    block = manifest.get("doubao") or {}
+    rate = float(block.get("speech_rate") or C.DOUBAO_SPEECH_RATE_DEFAULT)
+    takes: list[dict[str, Any]] = []
+    queue = list(manifest.get("takes") or [])
+    while queue:
+        take = queue.pop(0)
+        units = [by_id[uid] for uid in take["unit_ids"]]
+        if take.get("replaced_by") or all(_has_audio(u["output_path"]) for u in units) or not _has_audio(take["output_path"]):
+            takes.append(take)
+            continue
+        raw = decode_mono(Path(take["output_path"]))
+        result = cut_take(raw, [str(u["spoken_text"]) for u in units], rate=rate)
+        take["watermark"] = result["watermark"]
+        take["raw_seconds"] = result["raw_seconds"]
+        if result["status"] != "ok" and len(units) > 1:
+            take["split"] = {"status": result["status"], "detail": result.get("detail")}
+            halves = split_in_two(take["unit_ids"], {u["unit_id"]: u["scene_id"] for u in units},
+                                  {u["unit_id"]: sentence_weight(str(u["spoken_text"])) for u in units})
+            take["replaced_by"] = [f"{take['take_id']}-{i}" for i in range(1, len(halves) + 1)]
+            takes.append(take)
+            subs = [_make_take(block, run_dir, sub_id, [by_id[uid] for uid in ids]) for sub_id, ids in zip(take["replaced_by"], halves)]
+            for sub in subs:
+                Path(sub["output_path"]).unlink(missing_ok=True)
+            takes.extend(subs)
+            continue
+        for unit, (start, end) in zip(units, result["ranges"]):
+            write_wav(Path(unit["output_path"]), result["body"][start:end])
+            unit["take_id"] = take["take_id"]
+        take["split"] = {"status": result["status"], "method": result.get("method"), "detail": result.get("detail"),
+                         "cuts_seconds": [round(r[1] / SAMPLE_RATE, 3) for r in result["ranges"][:-1]],
+                         "speed_ratios": result.get("ratios")}
+        take["voiced_seconds"] = result["voiced_seconds"]
+        take["measured_rate"] = round(take["weight"] / result["voiced_seconds"], 3) if result["voiced_seconds"] > 0 else None
+        takes.append(take)
+    manifest["takes"] = takes
+    manifest["todo"] = doubao_todo(manifest)
+    _write_manifest(manifest_path, manifest)
+    return manifest["todo"]
+
+
+# ---------------------------------------------------------------------------
+# the Doubao tag and cutting one take back into sentences
+# ---------------------------------------------------------------------------
+FRAME = SAMPLE_RATE // 100   # 10 ms analysis frames
+SPLIT_MIN_PAUSE = (0.12, 0.06)   # strict pass, then a looser pass
+SPLIT_SPEED_RANGE = (0.55, 1.8)  # each sentence's seconds-per-character vs the take average
+SPLIT_GOOD_PAUSE = 0.45          # a pause this long counts as a full sentence break
+SPLIT_PAUSE_WEIGHT = 0.3         # how much a long pause is preferred over a plausible length
+TRUNCATED_MARGIN = 1.0           # an answer this close to the engine limit was probably cut off
+TOO_SHORT_RATIO = 0.5            # voiced length under this share of the estimate: text was skipped
+
+
+def _frame_levels(samples: array) -> list[float]:
+    levels = []
+    for start in range(0, len(samples), FRAME):
+        block = samples[start:start + FRAME]
+        peak = max(max(block), -min(block)) if block else 0
+        levels.append(20 * math.log10(max(peak, 1) / 32768))
+    return levels
+
+
+def _silence_threshold(levels: Sequence[float]) -> float:
+    ordered = sorted(levels)
+    speech = ordered[int(len(ordered) * 0.9)]
+    floor = ordered[int(len(ordered) * 0.1)]
+    return max(speech - 35.0, min(floor + 12.0, speech - 20.0))
+
+
+def watermark_cut(samples: array, sr: int = SAMPLE_RATE) -> int | None:
+    """Sample index where the leading Doubao tag ("内容由豆包AI生成") and the pause after it end, or None.
+
+    Layout of every Doubao answer: ~0.32 s silence, the tag (ends ~2.25 s), 0.27-0.46 s
+    silence, then the text. The cut is the end of the first pause of at least
+    DOUBAO_WATERMARK_MIN_GAP that starts inside DOUBAO_WATERMARK_WINDOW (pauses before the
+    window lie inside the tag). No such pause (no tag, a pause in the wrong place) returns
+    None, so a recording without the tag is never trimmed.
+    """
+
+    if sr != SAMPLE_RATE or not samples:
+        return None
+    levels = _frame_levels(samples)
+    threshold = _silence_threshold(levels)
+    onset = next((i for i, level in enumerate(levels) if level >= threshold), None)
+    if onset is None:
+        return None
+    need = max(1, round(C.DOUBAO_WATERMARK_MIN_GAP * 100))
+    lo, hi = (round(t * 100) for t in C.DOUBAO_WATERMARK_WINDOW)
+    run = 0
+    for i in range(onset, len(levels)):
+        if levels[i] < threshold:
+            run += 1
+            continue
+        if run >= need:
+            pause_start = i - run
+            if lo <= pause_start <= hi:
+                return max(0, (i - 2)) * FRAME   # keep 20 ms before the text starts
+            if pause_start > hi:
+                return None
+            # an earlier pause lies inside the tag itself: keep looking
+        if i > hi + need:
+            return None
+        run = 0
+    return None
+
+
+def _pauses(levels: list[float], threshold: float, first: int, last: int, min_frames: int) -> list[tuple[int, int]]:
+    runs, start = [], None
+    for i in range(first, last + 1):
+        quiet = levels[i] < threshold
+        if quiet and start is None:
+            start = i
+        elif not quiet and start is not None:
+            if i - start >= min_frames:
+                runs.append((start, i))
+            start = None
+    return runs
+
+
+def _choose_cuts(candidates: list[tuple[float, float]], weights: list[float], start: float, end: float) -> list[int] | None:
+    """Pick one pause per sentence break by dynamic programming over the sentence *lengths*.
+
+    Every sentence is scored on its own (its duration against its share of the recording,
+    on a log scale) plus a bonus for cutting at a long pause. Scoring lengths instead of
+    absolute positions keeps small estimation errors from piling up over a long recording.
+    """
+
+    import bisect
+
+    k, m = len(weights) - 1, len(candidates)
+    if m < k:
+        return None
+    rate = (end - start) / sum(weights)
+    expected = [w * rate for w in weights]
+    mids = [c[0] for c in candidates]
+    inf = float("inf")
+
+    def length_cost(index: int, a: float, b: float) -> float:
+        if b - a <= 0.05:
+            return inf
+        x = math.log((b - a) / expected[index])
+        return x * x
+
+    def pause_cost(j: int) -> float:
+        return SPLIT_PAUSE_WEIGHT * (1 - min(candidates[j][1] / SPLIT_GOOD_PAUSE, 1.0))
+
+    table = [[inf] * m for _ in range(k)]
+    back = [[-1] * m for _ in range(k)]
+    for j in range(m):
+        table[0][j] = length_cost(0, start, mids[j]) + pause_cost(j)
+    for b in range(1, k):
+        for j in range(m):
+            # Only previous breaks that leave sentence b a plausible length.
+            lo = bisect.bisect_left(mids, mids[j] - expected[b] * 3.0)
+            hi = bisect.bisect_right(mids, mids[j] - expected[b] * 0.3)
+            best, best_i = inf, -1
+            for i in range(lo, min(hi, j)):
+                if table[b - 1][i] < inf:
+                    value = table[b - 1][i] + length_cost(b, mids[i], mids[j])
+                    if value < best:
+                        best, best_i = value, i
+            if best_i >= 0:
+                table[b][j] = best + pause_cost(j)
+                back[b][j] = best_i
+    finals = [table[k - 1][j] + length_cost(k, mids[j], end) for j in range(m)]
+    j = min(range(m), key=lambda x: finals[x])
+    if finals[j] == inf:
+        return None
+    chosen = [j]
+    for b in range(k - 1, 0, -1):
+        j = back[b][j]
+        chosen.append(j)
+    return chosen[::-1]
+
+
+def split_batch(samples: array, texts: list[str]) -> dict[str, Any] | None:
+    """Cut one recording into ``len(texts)`` sentences at its pauses.
+
+    Returns contiguous sample ranges per sentence (cut in the middle of each chosen
+    pause, so every piece keeps its half of the pause) or ``None`` when no cut passes
+    the checks (every sentence must keep a plausible speaking speed).
+    """
+
+    n = len(samples)
+    if len(texts) <= 1:
+        return {"ranges": [(0, n)], "method": "single", "ratios": [1.0]}
+    levels = _frame_levels(samples)
+    threshold = _silence_threshold(levels)
+    voiced = [i for i, level in enumerate(levels) if level >= threshold]
+    if not voiced:
+        return None
+    first, last = voiced[0], voiced[-1]
+    weights = [sentence_weight(t) for t in texts]
+    start_s = first * FRAME / SAMPLE_RATE
+    end_s = (last + 1) * FRAME / SAMPLE_RATE
+    for method, min_pause in (("pause", SPLIT_MIN_PAUSE[0]), ("short-pause", SPLIT_MIN_PAUSE[1])):
+        runs = _pauses(levels, threshold, first, last, max(1, round(min_pause * 100)))
+        candidates = [((a + b) / 2 * FRAME / SAMPLE_RATE, (b - a) * FRAME / SAMPLE_RATE) for a, b in runs]
+        chosen = _choose_cuts(candidates, weights, start_s, end_s)
+        if chosen is None:
+            continue
+        cuts = [min(n, int(candidates[j][0] * SAMPLE_RATE)) for j in chosen]
+        ranges = list(zip([0] + cuts, cuts + [n]))
+        ratios = _speed_ratios(ranges, weights, first * FRAME, min(n, (last + 1) * FRAME))
+        if all(SPLIT_SPEED_RANGE[0] <= r <= SPLIT_SPEED_RANGE[1] for r in ratios):
+            return {"ranges": ranges, "method": method, "ratios": ratios}
+    return None
+
+
+def _speed_ratios(ranges: list[tuple[int, int]], weights: list[float], voiced_start: int, voiced_end: int) -> list[float]:
+    total = (voiced_end - voiced_start) / sum(weights)
+    out = []
+    for (start, end), weight in zip(ranges, weights):
+        length = min(end, voiced_end) - max(start, voiced_start)
+        out.append(round(max(length, 0) / weight / total, 3))
+    return out
+
+
+def cut_take(raw: array, texts: list[str], *, rate: float) -> dict[str, Any]:
+    """Tag removal, outer trim, truncation check and sentence cut for one Doubao answer.
+
+    ``status``: ``ok`` (ranges index into ``body``), ``truncated`` / ``too-short``
+    (the answer does not hold the whole text) or ``uncut`` (no clean cut at the pauses).
+    A single sentence is always ``ok`` (nothing to cut, the detail says what was odd).
+    """
+
+    raw_seconds = len(raw) / SAMPLE_RATE
+    wm = watermark_cut(raw)
+    body = raw[wm:] if wm else raw
+    start, end = _voiced_bounds(body)
+    body = body[start:end]
+    voiced_seconds = len(body) / SAMPLE_RATE
+    expected = sum(sentence_weight(t) for t in texts) / rate
+    out: dict[str, Any] = {"raw_seconds": round(raw_seconds, 3), "voiced_seconds": round(voiced_seconds, 3), "body": body,
+                           "watermark": {"status": "cut" if wm else "not-found", "seconds": round((wm or 0) / SAMPLE_RATE, 3)}}
+    problem = None
+    if raw_seconds >= C.DOUBAO_TAKE_MAX_SECONDS - TRUNCATED_MARGIN:
+        problem = ("truncated", f"音频 {raw_seconds:.1f}s，接近单次上限 {C.DOUBAO_TAKE_MAX_SECONDS:.0f}s，可能没读完")
+    elif voiced_seconds < TOO_SHORT_RATIO * expected:
+        problem = ("too-short", f"有声部分 {voiced_seconds:.1f}s，远短于估计的 {expected:.1f}s，可能漏读")
+    if problem and len(texts) > 1:
+        return {**out, "status": problem[0], "detail": problem[1]}
+    cut = split_batch(body, texts)
+    if cut is None:
+        return {**out, "status": "uncut", "detail": "停顿处切不开"}
+    return {**out, "status": "ok", "detail": problem[1] if problem else None, **cut}
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +693,7 @@ def synthesize_edge(run_dir: Path, manifest: Mapping[str, Any], *, attempts: int
                 words_path.parent.mkdir(parents=True, exist_ok=True)
                 words_path.write_text(json.dumps({"provider": "edge", "voice": voice, "rate": rate, "text": unit["spoken_text"], "words": words}, ensure_ascii=False), encoding="utf-8")
                 break
-            except Exception as exc:  # network / service errors
+            except Exception:  # network / service errors
                 out.unlink(missing_ok=True)
                 if attempt == attempts:
                     failed.append(unit["unit_id"])
@@ -289,11 +703,11 @@ def synthesize_edge(run_dir: Path, manifest: Mapping[str, Any], *, attempts: int
 
 
 # ---------------------------------------------------------------------------
-# normalize + trim + align
+# normalize + align
 # ---------------------------------------------------------------------------
 def decode_mono(path: Path) -> array:
     result = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-f", "s16le", "-ac", "1", "-ar", str(SAMPLE_RATE), "-"],
-                            capture_output=True, timeout=120, check=False)
+                            capture_output=True, timeout=300, check=False)
     if result.returncode != 0:
         raise VoiceError(f"cannot decode {path.name}: {result.stderr.decode(errors='replace')[-300:]}")
     samples = array("h")
@@ -312,49 +726,7 @@ def write_wav(path: Path, samples: array, *, channels: int = 1) -> None:
         handle.writeframes(samples.tobytes())
 
 
-def watermark_cut(samples: array, sr: int, *, rms_thr: float = 300.0, frame_ms: int = 10,
-                  min_gap_s: float = 0.10, gap_ratio: float = 1.5, max_search_s: float = 4.0) -> int | None:
-    """Sample index where a fixed leading voice tag (e.g. "由豆包 AI 生成") ends, or None.
-
-    The tag is a fixed recording whose internal pauses are short. The silence right after the tag is
-    noticeably longer, so the boundary is the first gap that is both at least ``min_gap_s`` and
-    ``gap_ratio`` times the longest gap seen inside the tag. This stays correct whether the post-tag
-    padding is 0.13s or 0.3s. Fail-safe: no qualifying gap or an implausibly late cut returns None.
-    """
-
-    window = int(frame_ms / 1000 * sr)
-    floor = int(min_gap_s / (frame_ms / 1000))
-    frames = len(samples) // window
-
-    def frame_rms(i: int) -> float:
-        block = samples[i * window:(i + 1) * window]
-        return (sum(x * x for x in block) / len(block)) ** 0.5
-
-    onset = next((i for i in range(frames) if frame_rms(i) >= rms_thr), None)
-    if onset is None:
-        return None
-    run = 0
-    internal_max = 0
-    for i in range(onset, frames):
-        if frame_rms(i) < rms_thr:
-            run += 1
-            continue
-        if run:
-            if run >= floor and run >= gap_ratio * internal_max:
-                cut_frame = i - run
-                if cut_frame * frame_ms / 1000 > max_search_s:
-                    return None
-                return cut_frame * window
-            internal_max = max(internal_max, run)
-            run = 0
-    if run and run >= floor and run >= gap_ratio * internal_max:  # tag ends at end of file
-        cut_frame = frames - run
-        if cut_frame * frame_ms / 1000 <= max_search_s:
-            return cut_frame * window
-    return None
-
-
-def _voiced_bounds(samples: array, *, threshold_db: float = -42.0, window: int = 480) -> tuple[int, int]:
+def _voiced_bounds(samples: array, *, threshold_db: float = -42.0, window: int = 480, pad_seconds: float = 0.04) -> tuple[int, int]:
     limit = 32768 * (10 ** (threshold_db / 20))
     n = len(samples)
     first, last = None, None
@@ -370,248 +742,106 @@ def _voiced_bounds(samples: array, *, threshold_db: float = -42.0, window: int =
             break
     if first is None or last is None or last <= first:
         return 0, n
-    pad = int(0.04 * SAMPLE_RATE)
+    pad = int(pad_seconds * SAMPLE_RATE)
     return max(0, first - pad), min(n, last + pad)
 
 
-def _proportional_words(text: str, duration: float) -> list[dict[str, Any]]:
-    chars = [ch for ch in text if not ch.isspace()]
-    if not chars:
+_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:[.\-#/+%][A-Za-z0-9]+)*|[一-鿿]")
+
+
+def _word_tokens(text: str) -> list[tuple[str, float]]:
+    """Speakable tokens as (token, weight): one English word / number or one Han character each."""
+
+    return [(m.group(0), sentence_weight(m.group(0)) if re.search(r"[A-Za-z0-9]", m.group(0)) else 1.0) for m in _WORD_RE.finditer(text)]
+
+
+def word_alignment(text: str, duration: float, *, offset: float = 0.0) -> list[dict[str, Any]]:
+    """Word timings inside one sentence, spread by spoken weight (Doubao gives no timestamps)."""
+
+    tokens = _word_tokens(text)
+    total = sum(weight for _, weight in tokens)
+    if not tokens or total <= 0:
         return []
-    step = duration / len(chars)
-    return [{"text": ch, "start": round(i * step, 4), "end": round((i + 1) * step, 4)} for i, ch in enumerate(chars)]
-
-
-def _apply_tempo(path: Path, tempo: float) -> None:
-    """Speed one sentence up in place, pitch preserved (ffmpeg atempo)."""
-
-    tmp = path.with_suffix(".tempo.wav")
-    result = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-filter:a", f"atempo={tempo:g}", "-ar", str(SAMPLE_RATE), "-ac", "1",
-                             "-c:a", "pcm_s16le", str(tmp)], capture_output=True, timeout=120, check=False)
-    if result.returncode != 0 or not tmp.is_file():
-        raise VoiceError(f"atempo failed for {path.name}: {result.stderr.decode(errors='replace')[-200:]}")
-    tmp.replace(path)
+    words, cursor = [], 0.0
+    for token, weight in tokens:
+        start = offset + cursor / total * duration
+        cursor += weight
+        words.append({"text": token, "start": round(start, 4), "end": round(offset + cursor / total * duration, 4)})
+    return words
 
 
 def wav_seconds(path: Path) -> float:
     return len(decode_mono(path)) / SAMPLE_RATE
 
 
-# ---------------------------------------------------------------------------
-# chunked synthesis: word tokenizer + DP boundary alignment
-# ---------------------------------------------------------------------------
-_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:[.\-#/+%][A-Za-z0-9]+)*|[\u4e00-\u9fff]")
-
-
-def _word_tokens(text: str) -> list[tuple[str, int]]:
-    """Speakable tokens as (token, weight): one English/number run or one CJK character each."""
-
-    tokens = []
-    for match in _WORD_RE.finditer(text):
-        token = match.group(0)
-        weight = len(token) if re.search(r"[A-Za-z0-9]", token) else 1
-        tokens.append((token, weight))
-    return tokens
-
-
-def word_alignment(text: str, duration: float) -> list[dict[str, Any]]:
-    """Word-level timings inside one unit, distributed by token weight (no native timestamps available)."""
-
-    tokens = _word_tokens(text)
-    total = sum(weight for _, weight in tokens)
-    if not tokens or total == 0:
-        return []
-    words = []
-    cursor = 0
-    for token, weight in tokens:
-        start = cursor / total * duration
-        cursor += weight
-        words.append({"text": token, "start": round(start, 4), "end": round(cursor / total * duration, 4)})
-    return words
-
-
-def _gap_midpoints(samples: array, sr: int, *, rms_thr: float = 300.0, frame_ms: int = 10,
-                   min_gap_s: float) -> list[float]:
-    """Times (seconds) of the midpoint of every silence run at least min_gap_s long."""
-
-    window = int(frame_ms / 1000 * sr)
-    need = int(min_gap_s / (frame_ms / 1000))
-    frames = len(samples) // window
-    mids: list[float] = []
-    run = 0
-    for i in range(frames + 1):
-        silent = False
-        if i < frames:
-            block = samples[i * window:(i + 1) * window]
-            silent = (sum(x * x for x in block) / len(block)) ** 0.5 < rms_thr
-        if silent:
-            run += 1
-            continue
-        if run >= need:
-            mid = (i - run / 2) * frame_ms / 1000
-            mids.append(mid)
-        run = 0
-    return mids
-
-
-def _dp_boundaries(weights: list[int], duration: float, gaps: list[float], min_unit_s: float) -> list[float] | None:
-    """Place N-1 unit boundaries at real pauses via DP; proportional char timing is the prior.
-
-    Returns ordered boundary times, or None if no valid ordered assignment exists (caller falls back to
-    pure proportional boundaries).
-    """
-
-    n_units = len(weights)
-    if n_units < 2:
-        return []
-    cum = np.cumsum(weights)
-    total = float(cum[-1])
-    expected = [float(cum[k] / total) * duration for k in range(n_units - 1)]  # boundary after unit k
-    k_count = n_units - 1
-    m_count = len(gaps)
-    if m_count < k_count:
-        return None
-    inf = float("inf")
-    dp = np.full((k_count, m_count), inf)
-    prev = np.full((k_count, m_count), -1, dtype=int)
-    for m in range(m_count):
-        if gaps[m] >= min_unit_s and duration - gaps[m] >= min_unit_s:
-            dp[0][m] = (gaps[m] - expected[0]) ** 2
-    for k in range(1, k_count):
-        for m in range(m_count):
-            best, best_n = inf, -1
-            for n in range(m):
-                if dp[k - 1][n] < inf and gaps[m] - gaps[n] >= min_unit_s:
-                    if dp[k - 1][n] < best:
-                        best, best_n = dp[k - 1][n], n
-            if best_n >= 0 and duration - gaps[m] >= min_unit_s:
-                dp[k][m] = best + (gaps[m] - expected[k]) ** 2
-                prev[k][m] = best_n
-    last = int(np.argmin(dp[k_count - 1]))
-    if dp[k_count - 1][last] == inf:
-        return None
-    chosen: list[float] = []
-    k, m = k_count - 1, last
-    while k >= 0:
-        chosen.append(gaps[m])
-        m = prev[k][m]
-        k -= 1
-    chosen.reverse()
-    return chosen
-
-
-def _proportional_boundaries(weights: list[int], duration: float) -> list[float]:
-    cum = np.cumsum(weights)
-    total = float(cum[-1])
-    return [float(cum[k] / total) * duration for k in range(len(weights) - 1)]
-
-
-def finalize_chunked(run_dir: Path, manifest: Mapping[str, Any]) -> dict[str, Any]:
-    """Turn each synthesized chunk back into per-unit WAVs and per-unit word alignments.
-
-    Per chunk: strip the leading watermark, trim outer silence, place unit boundaries at real pauses
-    (DP, proportional prior; pure proportional fallback), slice the audio, and write word-level timings.
-    The output voice_manifest keeps the same per-unit shape the timeline and mix already consume.
-    """
-
-    missing = missing_chunks(manifest)
-    if missing:
-        raise VoiceError("missing narration chunks: " + ", ".join(missing))
-    units_by_id = {u["unit_id"]: u for u in manifest.get("units") or []}
-    entries: list[dict[str, Any]] = []
-    stripped_count = 0
-    snapped_chunks = 0
-    for chunk in manifest.get("chunks") or []:
-        chunk_id = chunk["chunk_id"]
-        unit_ids = chunk["unit_ids"]
-        samples = decode_mono(Path(chunk["output_path"]))
-        wm = watermark_cut(samples, SAMPLE_RATE)
-        if wm:
-            samples = samples[wm:]
-            stripped_count += 1
-        lead, tail = _voiced_bounds(samples)
-        body = samples[lead:tail]
-        body_duration = len(body) / SAMPLE_RATE
-        weights = [sum(w for _, w in _word_tokens(units_by_id[uid]["display_text"])) or 1 for uid in unit_ids]
-        gaps = _gap_midpoints(body, SAMPLE_RATE, min_gap_s=C.DOUBAO_CHUNK_MIN_GAP_S)
-        boundaries = _dp_boundaries(weights, body_duration, gaps, C.DOUBAO_CHUNK_MIN_UNIT_S)
-        if boundaries is None:
-            boundaries = _proportional_boundaries(weights, body_duration)
-        else:
-            snapped_chunks += 1
-        cuts = [0] + [min(len(body), max(0, int(round(t * SAMPLE_RATE)))) for t in boundaries] + [len(body)]
-        for index, uid in enumerate(unit_ids):
-            seg = body[cuts[index]:cuts[index + 1]]
-            if len(seg) < int(0.1 * SAMPLE_RATE):
-                raise VoiceError(f"unit {uid} audio is too short after chunk alignment")
-            out = unit_audio_path(run_dir, uid)
-            write_wav(out, seg)
-            duration = wav_seconds(out)
-            words = word_alignment(units_by_id[uid]["display_text"], duration)
-            align_path = run_dir / "artifacts" / "alignments" / f"{uid}.json"
-            align_path.parent.mkdir(parents=True, exist_ok=True)
-            align_path.write_text(json.dumps({"unit_id": uid, "alignment": "word-level", "duration": duration,
-                                              "words": words}, ensure_ascii=False), encoding="utf-8")
-            meta = units_by_id[uid]
-            entries.append({"unit_id": uid, "scene_id": meta["scene_id"], "audio_path": str(out.relative_to(run_dir)),
-                            "duration": round(duration, 4), "alignment": "word-level",
-                            "trimmed_lead_seconds": round(lead / SAMPLE_RATE, 4), "watermark_stripped": bool(wm),
-                            "spoken_text": meta["spoken_text"], "display_text": meta["display_text"]})
-    entries.sort(key=lambda e: e["unit_id"])
-    result = {"version": C.V6_VERSION, "provider": manifest.get("provider"),
-              "doubao_mode": (manifest.get("doubao") or {}).get("mode"), "tempo": 1.0,
-              "chunked": True, "chunks": len(manifest.get("chunks") or []), "boundaries_snapped_chunks": snapped_chunks,
-              "watermark_stripped_units": stripped_count, "units": entries,
-              "total_speech_seconds": round(sum(e["duration"] for e in entries), 3)}
-    (run_dir / "artifacts" / "voice_manifest.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    return result
-
-
 def finalize(run_dir: Path, manifest: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize, trim and align every unit; write artifacts/voice_manifest.json."""
+    """Normalize and align every unit; write artifacts/voice_manifest.json.
 
-    if manifest.get("chunked"):
-        return finalize_chunked(run_dir, manifest)
+    Edge sentences are trimmed to their voice. Pieces of a Doubao take are kept whole
+    (they carry the take's natural pauses) and report ``lead`` / ``tail``: the silence
+    at their start and end, so the timeline can lay the take back down as it was read.
+    """
+
     missing = missing_units(manifest)
     if missing:
         raise VoiceError("missing narration audio for units: " + ", ".join(missing))
-    tempo = float((manifest.get("doubao") or {}).get("tempo") or 1.0) if manifest.get("provider") == "doubao" else 1.0
     entries = []
-    stripped_count = 0
     for unit in manifest.get("units") or []:
         samples = decode_mono(Path(unit["output_path"]))
-        wm_cut = watermark_cut(samples, SAMPLE_RATE)
-        if wm_cut:
-            samples = samples[wm_cut:]
-            stripped_count += 1
-        start, end = _voiced_bounds(samples)
-        trimmed = samples[start:end]
-        if len(trimmed) < int(0.2 * SAMPLE_RATE):
-            raise VoiceError(f"unit {unit['unit_id']} audio is too short after trimming")
+        take_id = unit.get("take_id")
+        if take_id:
+            body = samples
+            start, end = _voiced_bounds(samples, pad_seconds=0.0)
+            offset = 0.0
+        else:
+            start, end = _voiced_bounds(samples)
+            body = samples[start:end]
+            offset = start / SAMPLE_RATE
+        if len(body) < int(0.2 * SAMPLE_RATE):
+            raise VoiceError(f"unit {unit['unit_id']} audio is too short")
         out = unit_audio_path(run_dir, unit["unit_id"])
-        write_wav(out, trimmed)
-        if abs(tempo - 1.0) > 1e-3:
-            _apply_tempo(out, tempo)
-        duration = wav_seconds(out)
-        offset = start / SAMPLE_RATE
+        write_wav(out, body)
+        duration = len(body) / SAMPLE_RATE
+        lead = start / SAMPLE_RATE if take_id else 0.0
+        tail = (len(body) - end) / SAMPLE_RATE if take_id else 0.0
         raw_words_path = run_dir / "artifacts" / "alignments" / f"{unit['unit_id']}.raw.json"
-        if raw_words_path.is_file() and abs(tempo - 1.0) <= 1e-3:
+        if not take_id and raw_words_path.is_file():
             raw = json.loads(raw_words_path.read_text(encoding="utf-8"))
             words = [{"text": w["text"], "start": round(max(0.0, w["start"] - offset), 4), "end": round(min(duration, max(0.0, w["end"] - offset)), 4)}
                      for w in raw.get("words") or []]
             alignment = "native-word-boundary"
         else:
-            words = _proportional_words(unit["spoken_text"], duration)
-            alignment = "proportional"
+            words = word_alignment(str(unit["display_text"]), max(0.05, duration - lead - tail), offset=lead)
+            alignment = "weighted-words"
         align_path = run_dir / "artifacts" / "alignments" / f"{unit['unit_id']}.json"
         align_path.parent.mkdir(parents=True, exist_ok=True)
-        align_path.write_text(json.dumps({"unit_id": unit["unit_id"], "alignment": alignment, "duration": duration, "words": words}, ensure_ascii=False), encoding="utf-8")
+        align_path.write_text(json.dumps({"unit_id": unit["unit_id"], "alignment": alignment, "duration": duration, "lead": round(lead, 4),
+                                          "tail": round(tail, 4), "words": words}, ensure_ascii=False), encoding="utf-8")
         entries.append({"unit_id": unit["unit_id"], "scene_id": unit["scene_id"], "audio_path": str(out.relative_to(run_dir)),
-                        "duration": round(duration, 4), "alignment": alignment, "trimmed_lead_seconds": round(offset, 4),
-                        "watermark_stripped": bool(wm_cut),
-                        "spoken_text": unit["spoken_text"], "display_text": unit["display_text"]})
-    result = {"version": C.V6_VERSION, "provider": manifest.get("provider"), "doubao_mode": (manifest.get("doubao") or {}).get("mode"),
-              "tempo": tempo, "watermark_stripped_units": stripped_count, "units": entries,
-              "total_speech_seconds": round(sum(e["duration"] for e in entries), 3)}
+                        "duration": round(duration, 4), "lead": round(lead, 4), "tail": round(tail, 4), "take_id": take_id,
+                        "alignment": alignment, "spoken_text": unit["spoken_text"], "display_text": unit["display_text"]})
+    summary = _take_summary(manifest)
+    if summary and summary["measurements"]:
+        record_speech_rate(run_dir.parent / "_state", run_dir.name, summary["measurements"])
+    result = {"version": C.V6_VERSION, "provider": manifest.get("provider"), "units": entries,
+              "doubao_takes": summary,
+              "total_speech_seconds": round(sum(e["duration"] - e["lead"] - e["tail"] for e in entries), 3),
+              "total_audio_seconds": round(sum(e["duration"] for e in entries), 3)}
     (run_dir / "artifacts" / "voice_manifest.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return result
+
+
+def _take_summary(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    if manifest.get("provider") != "doubao":
+        return None
+    takes = manifest.get("takes") or []
+    used = [t for t in takes if not t.get("replaced_by") and t.get("split")]
+    return {"requests": sum(1 for t in takes if t.get("raw_seconds") is not None),
+            "takes": [{"take_id": t["take_id"], "sentences": len(t["unit_ids"]), "estimated_seconds": t.get("estimated_seconds"),
+                       "raw_seconds": t.get("raw_seconds"), "watermark": (t.get("watermark") or {}).get("status"),
+                       "split": (t.get("split") or {}).get("status"), "replaced_by": t.get("replaced_by")} for t in takes],
+            "asked_again": [t["take_id"] for t in takes if t.get("replaced_by")],
+            "watermark_not_found": [t["take_id"] for t in takes if (t.get("watermark") or {}).get("status") == "not-found"],
+            "speech_rate_used": (manifest.get("doubao") or {}).get("speech_rate"),
+            "measurements": [{"take": t["take_id"], "rate": t["measured_rate"], "seconds": t.get("voiced_seconds")}
+                             for t in used if t.get("measured_rate") and len(t["unit_ids"]) > 1]}

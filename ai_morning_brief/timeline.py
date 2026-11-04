@@ -102,33 +102,53 @@ def _chunk_times(chunks: list[str], words: list[Mapping[str, Any]], duration: fl
 
 
 def build_timeline(run_dir: Path, final_plan: Mapping[str, Any], voice: Mapping[str, Any]) -> dict[str, Any]:
-    durations = {u["unit_id"]: float(u["duration"]) for u in voice.get("units") or []}
+    """Place every sentence, scene, card and caption.
+
+    Sentences cut from one Doubao take are laid back down exactly as they were read
+    (no pause added inside a story: each piece already carries its half of the
+    natural pause). Between stories, after the hook, and between separately
+    synthesized sentences (edge, or two takes) the pause is topped up to the
+    program's minimum (PAUSE_*) - never shortened.
+    """
+
+    by_id = {u["unit_id"]: u for u in voice.get("units") or []}
     plan_units = list(final_plan.get("units") or [])
     scenes = list(final_plan.get("scenes") or [])
     placed_units: list[dict[str, Any]] = []
     captions: list[dict[str, Any]] = []
     scene_spans: dict[str, list[float]] = {}
-    cursor = HOOK_SPEECH_START
-    previous_scene = None
+    cursor = 0.0
+    previous: Mapping[str, Any] | None = None
     for unit in plan_units:
         scene_id = unit["scene_id"]
-        if previous_scene is not None and scene_id != previous_scene:
-            cursor += C.PAUSE_AFTER_HOOK if previous_scene == "hook" else C.PAUSE_BETWEEN_STORIES
-        elif previous_scene is not None:
-            cursor += C.PAUSE_BETWEEN_SENTENCES
-        duration = durations[unit["unit_id"]]
+        audio = by_id[unit["unit_id"]]
+        duration = float(audio["duration"])
+        lead, tail = float(audio.get("lead") or 0.0), float(audio.get("tail") or 0.0)
+        take = audio.get("take_id")
+        if previous is None:
+            cursor = max(0.0, HOOK_SPEECH_START - lead)
+        else:
+            if scene_id != previous["scene_id"]:
+                needed = C.PAUSE_AFTER_HOOK if previous["scene_id"] == "hook" else C.PAUSE_BETWEEN_STORIES
+            else:
+                needed = C.PAUSE_BETWEEN_SENTENCES
+            same_take = bool(take) and take == previous["take"] and scene_id == previous["scene_id"]
+            cursor += 0.0 if same_take else max(0.0, needed - (previous["tail"] + lead))
         start, end = cursor, cursor + duration
-        placed_units.append({**unit, "start": round(start, 3), "end": round(end, 3), "duration": round(duration, 3)})
-        span = scene_spans.setdefault(scene_id, [start, end])
-        span[1] = end
+        speech_start, speech_end = start + lead, max(start + lead + 0.05, end - tail)
+        placed_units.append({**unit, "start": round(start, 3), "end": round(end, 3), "duration": round(duration, 3),
+                             "speech_start": round(speech_start, 3), "speech_end": round(speech_end, 3), "take_id": take})
+        span = scene_spans.setdefault(scene_id, [speech_start, speech_end])
+        span[1] = speech_end
         align_path = run_dir / "artifacts" / "alignments" / f"{unit['unit_id']}.json"
         words = json.loads(align_path.read_text(encoding="utf-8")).get("words", []) if align_path.is_file() else []
+        words = [{**w, "start": float(w["start"]) - lead, "end": float(w["end"]) - lead} for w in words]
         chunks = split_caption(unit["display_text"])
-        for chunk, (cs, ce) in zip(chunks, _chunk_times(chunks, words, duration)):
-            captions.append({"start": round(start + cs, 3), "end": round(start + ce, 3), "text": caption_text(chunk),
+        for chunk, (cs, ce) in zip(chunks, _chunk_times(chunks, words, speech_end - speech_start)):
+            captions.append({"start": round(speech_start + cs, 3), "end": round(speech_start + ce, 3), "text": caption_text(chunk),
                              "onscreen": unit.get("caption", True) is not False})
         cursor = end
-        previous_scene = scene_id
+        previous = {"scene_id": scene_id, "take": take, "tail": tail}
     total = cursor + TAIL
     outro_span = scene_spans.get("outro")
     if outro_span and total - (outro_span[0] - SCENE_LEAD) < C.OUTRO_MIN_SECONDS:
@@ -145,7 +165,7 @@ def build_timeline(run_dir: Path, final_plan: Mapping[str, Any], voice: Mapping[
     card_events: dict[str, list[dict[str, Any]]] = {}
     for unit in placed_units:
         if unit.get("card"):
-            card_events.setdefault(unit["scene_id"], []).append({"card": unit["card"], "start": unit["start"], "end": unit["end"]})
+            card_events.setdefault(unit["scene_id"], []).append({"card": unit["card"], "start": unit["speech_start"], "end": unit["speech_end"]})
     # Captions end when the next one starts, so the bar never flickers between sentences of a scene.
     for i in range(len(captions) - 1):
         if not captions[i]["onscreen"] or not captions[i + 1]["onscreen"]:

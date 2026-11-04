@@ -1,14 +1,16 @@
 ---
 name: ai-brief-doubao-voice
-description: Synthesize AI每日早报 v6 narration with Doubao in ONE request for the whole edition (smaller batches only if a recording cannot be cut) — text_to_audio_plus with the fixed voice profile (default) or audio_to_audio_plus voice cloning with example-audio.mp3. The orchestrator cuts each paragraph back into sentences, speeds up, trims, aligns and mixes automatically; edge-tts is the automatic fallback.
+description: Synthesize AI每日早报 v6 narration with Doubao text_to_audio_plus (fixed anime-girl voice profile, natural speed) in a few long takes of about 100 s each (never over 120 s), split between stories. The orchestrator removes the "内容由豆包AI生成" tag, cuts every take back into sentences, re-asks a take that cannot be cut, aligns and mixes automatically; edge-tts is the automatic fallback.
 metadata:
   author: local-project
-  version: "5.1.0"
+  version: "6.0.0"
 ---
 
-# AI每日早报 v6 · 豆包配音（整期一次请求，程序切句）
+# AI每日早报 v6 · 豆包配音（几段长录音，程序切句）
 
-豆包请求太频繁会报“合成太频繁”而被限流，但允许一次合成长音频，所以**默认整期一次请求**：从钩子到结尾的全部旁白（约 1000 字以内）合成一条，程序再把它切回单句。只有整期音频切不开时，才改为每段 ≤300 字的几次请求；300 字的段还切不开，才对该段逐句请求。你只负责按清单逐条合成并保存，**切回单句**、加速、裁剪、对齐、混音都由程序完成。
+豆包一次最多能合成约 120 秒音频。一次读完一长段，音色和情绪比几十条短句拼起来更稳定，所以程序把整期旁白分成**尽量少的几段**（每段约 100 秒，上限 120 秒）。分段只在两条新闻之间切开：钩子和第一条头条一起读，结尾和最后一条新闻一起读，几段的长度尽量相等。
+
+你只负责按清单一条一条合成并保存。去掉开头的“内容由豆包AI生成”、切回单句、对齐、混音都由程序完成。
 
 ## 什么时候需要你
 
@@ -16,17 +18,17 @@ metadata:
 
 ## 步骤
 
-1. 读 `outputs/YYYY-MM-DD/artifacts/tts_manifest.json`，看 `doubao.tool`（默认 `text_to_audio_plus`）和 **`todo`** 列表（只列还缺的音频）。
+1. 读 `outputs/YYYY-MM-DD/artifacts/tts_manifest.json`，看 `doubao.tool`（`text_to_audio_plus`）和 **`todo`** 列表（只列还缺的音频，通常 1–3 条）。
 2. 对 `todo` 里**每一条**，按顺序**一次只发一条**：
-   - 文生语音（`text_to_audio_plus`）：把该条 `request` **原样**发送。它已经填好了固定音色描述和原文，格式为：`"{音色描述}"。朗读以下文字："{这一段原文}"`，其中音色描述为：
-     > 年轻女性，声音温柔甜美，咬字清晰有节奏感，情绪明亮自然，像晨间新闻女主播，无背景音无杂音，纯人声
-   - 声音克隆（`audio_to_audio_plus`）：`@音频1` = `doubao.reference_audio`（项目根目录 `example-audio.mp3`），prompt = 该条 `request`。
-   - 保存到该条 `output_path`：整期或整段为 `assets/audio/raw/b01.wav`（小段为 `b01-1.wav` 等），单句为 `uNN.wav`。mp3 或 m4a 也可以，程序会自动转换。
+   - 调用 `text_to_audio_plus`，把该条 `request` **原样**发送。它已经填好了固定音色描述和这一段的全部原文，格式为：`"{音色描述}"，内容如下："{这一段原文}"`，其中音色描述为：
+     > 清脆元气的少女音，音调偏高，声音明亮活泼、带着少年感，语气俏皮可爱、尾音微微上扬，语速明快、节奏轻快跳跃，像动漫角色配音一样元气满满，播报新闻时英文单词用自然的英文发音读出，纯人声无背景音乐
+   - 把返回的音频**原样**保存到该条 `output_path`（如 `assets/audio/raw/t01.wav`；重新请求的半段为 `t01-1.wav`、`t01-2.wav`）。mp3 或 m4a 也可以，程序会自动转换。
 3. 规则：
-   - 一条 todo 是**连读的一整段**（默认就是整期全部旁白）。不要拆开，不要和别的条合并，不增删字词。英文和阿拉伯数字（GPU、RSA-260、552B）照原样读，不拆单字母，不念成中文数字。
-   - 不要在请求里要求语速。程序会统一加速 1.25 倍，音高不变（只对文生语音）。
+   - 一条 todo 是**连读的一整段**（几条新闻，约 1–2 分钟）。不要拆开，不要和别的条合并，不增删字词。新闻之间的换行原样保留。英文和阿拉伯数字（GPU、RSA-260、552B）照原样读，不拆单字母，不念成中文数字。
+   - 不要在请求里要求语速，也不要事后变速：成片就用自然语速。
+   - 返回的音频开头会有“内容由豆包AI生成”，**不用处理**，程序会自动去掉。
    - **限流**：遇到“合成太频繁”等报错，**等 10 秒**再重试同一条，最多 3 次。不要并发，不要连发。
-4. 全部保存后，重新运行同一条编排器命令。程序会把每段切回单句；如果没能自动切开，它会重新交接：整期切不开时 `todo` 变成几段 ≤300 字的小段；小段还切不开，变成该段的**单句**（`kind: "sentence"`）。照同样方法逐条合成，再重新运行即可。
+4. 全部保存后，重新运行同一条编排器命令。程序会把每段切回单句；如果某段切不开、没读完或明显漏读，它会把这一段拆成两半（尽量在两条新闻之间）重新交接，`todo` 里会出现 `t01-1`、`t01-2` 这样的半段。照同样方法逐条合成，再重新运行即可。半段还不行就继续对半拆，最后到单句。
 
 ## 豆包配音不可用时
 
@@ -34,16 +36,20 @@ metadata:
 
 ## 程序会自动做的事
 
-- **切句**：在整段音频里找停顿，按每句的字数（英文按音节、数字按读法估算）预估每个句界的位置，在最近的停顿中间切开。每句切出来后检查语速是否合理。切不准时先放宽停顿长度重试一次；还不行，整期改为几段 ≤300 字的小段请求，小段再不行才逐句请求，已切好的部分不受影响。切点和检查结果写在 `tts_manifest.json` 各段的 `split` 字段里，请求次数写在 `voice_manifest.json` 的 `doubao_requests` 字段里。
-- 文生语音模式每句加速 `AI_DAILY_DOUBAO_TEMPO`（默认 1.25，用 ffmpeg atempo，音高不变）。
-- 转为 48 kHz 单声道 WAV，精确裁掉首尾静音（阈值 −42 dBFS，保留 40 ms）。
-- 写 `artifacts/alignments/uNN.json`（edge 为原生逐词时间，豆包为句内比例时间）。
-- 句间停顿统一由程序控制：句内 0.14 s，换条 0.40 s，钩子后 0.30 s。
+- **分段**：每句按“字数重量”估算时长（中文一字算 1，英文约两个字母算 1，数字按读法，逗号算半拍停顿），再除以实测语速。段数 = 总估算时长 ÷ 100 秒（向上取整），然后在新闻之间选切点，让最长的一段尽量短；每段“估算时长 + 水印约 2.7 秒”乘以 1.15 的余量后不能超过 120 秒。一条新闻本身超过上限时，才在句子之间拆开。
+- **实测语速**：每段切好后记下真实语速，存进 `outputs/_state/doubao_speech_rate.json`，下次分段取最近 10 段的中位数（还没有记录时用默认值 5.0）。
+- **去水印**：每条豆包音频的开头结构是：约 0.32 秒静音 → “内容由豆包AI生成” → 约 2.25 秒结束 → 0.27–0.46 秒静音 → 正文。程序找第一个起点落在 1.6–3.0 秒之间、长度至少 0.18 秒的停顿，在停顿结束处切掉前面的部分。找不到就不切，自检报告会出现 `doubao_watermark` 警告。edge 的音频从不做这一步。
+- **截断检查**：音频接近 120 秒（差不到 1 秒），或有声部分不到估算时长的一半，就认为没读完或漏读，这一段拆成两半重新请求。
+- **切句**：在整段音频里找停顿，用动态规划按每句的预估长度选切点，切在停顿正中间，每句再检查语速是否合理（相对整段平均在 0.55–1.8 倍之间）。切不开时先放宽停顿长度重试一次，还不行就对半拆开重新请求，已切好的部分不受影响。切点、语速比、水印结果写在 `tts_manifest.json` 各段的 `split` / `watermark` 字段里，请求次数写在 `voice_manifest.json` 的 `doubao_takes` 字段里。
+- **保留自然停顿**：切出来的每句都带着它那一半停顿，`voice_manifest.json` 记下每句开头和结尾的静音（`lead` / `tail`）。时间轴把同一段、同一条新闻里的句子原样拼回去，不再插入停顿；新闻之间如果原有停顿不足 0.40 秒（钩子之后 0.30 秒）就补足，只延长，不缩短。
+- 转为 48 kHz 单声道 WAV，写 `artifacts/alignments/uNN.json`（edge 为原生逐词时间；豆包按词的读音长度在说话时段内分配）。
 - 混音：说话时音乐比人声低约 18 dB，最终响度 −16 LUFS，真峰值 −1.5 dBTP。
 - 断点续跑：已保存的音频不会重做。改了稿子的句子，其旧音频会自动删掉重配。
 
 ## 可调参数（`ai_morning_brief/config.py`）
 
-- 一次请求的字数上限：`DOUBAO_BATCH_MAX_CHARS`（默认 1500，即整期一次；环境变量 `AI_DAILY_DOUBAO_BATCH_CHARS`，设为 300 就是每段一次）；切不开时的小段上限：`DOUBAO_BATCH_FALLBACK_CHARS`（300）。
+- 每段目标时长：`DOUBAO_TAKE_TARGET_SECONDS`（默认 100，环境变量 `AI_DAILY_DOUBAO_TAKE_SECONDS`）；单次上限 `DOUBAO_TAKE_MAX_SECONDS`（120），余量 `DOUBAO_TAKE_SAFETY`（1.15）。
+- 默认语速：`DOUBAO_SPEECH_RATE_DEFAULT`（5.0）。
+- 水印：`DOUBAO_WATERMARK_WINDOW`（1.6–3.0 秒）、`DOUBAO_WATERMARK_MIN_GAP`（0.18 秒）。
 - 限流后的等待时间：`DOUBAO_RATE_LIMIT_WAIT_SECONDS`（默认 10）。
-- 更换音色：文生语音改 `DOUBAO_TTS_VOICE_PROFILE`；声音克隆替换项目根目录的 `example-audio.mp3`。
+- 更换音色：改 `DOUBAO_TTS_VOICE_PROFILE`。

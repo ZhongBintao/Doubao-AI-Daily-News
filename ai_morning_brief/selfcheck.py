@@ -59,7 +59,8 @@ def contact_sheet(frames: list[tuple[str, Path]], out: Path) -> None:
     sheet.save(out)
 
 
-def run(run_dir: Path, video: Path, probe: Mapping[str, Any], timeline: Mapping[str, Any], *, layout: Mapping[str, Any] | None = None, mix: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def run(run_dir: Path, video: Path, probe: Mapping[str, Any], timeline: Mapping[str, Any], *, layout: Mapping[str, Any] | None = None, mix: Mapping[str, Any] | None = None,
+        voice: Mapping[str, Any] | None = None) -> dict[str, Any]:
     out_dir = run_dir / "artifacts" / "selfcheck"
     checks: list[dict[str, Any]] = []
 
@@ -69,18 +70,23 @@ def run(run_dir: Path, video: Path, probe: Mapping[str, Any], timeline: Mapping[
     check("resolution", (probe.get("width"), probe.get("height")) == (C.V6_WIDTH, C.V6_HEIGHT), f'{probe.get("width")}x{probe.get("height")}')
     check("audio_stream", bool(probe.get("audio_codec")), str(probe.get("audio_codec")))
     duration = float(probe.get("duration") or 0)
-    check("duration", 15 <= duration <= C.V6_MAX_DURATION_SECONDS, f"{duration:.1f}s（上限 {C.V6_MAX_DURATION_SECONDS:.0f}s）")
+    check("duration", duration >= C.V6_MIN_DURATION_SECONDS, f"{duration:.1f}s（至少 {C.V6_MIN_DURATION_SECONDS:.0f}s，无上限）")
     scenes = list(timeline.get("scenes") or [])
     hook = next((s for s in scenes if s["kind"] == "hook"), None)
     hook_len = (hook["end"] - hook["start"]) if hook else 0
     check("hook_length", bool(hook) and hook_len <= C.V6_HOOK_MAX_SECONDS + 0.5, f"开头钩子 {hook_len:.1f}s")
     # The hook is shown in large type instead of a caption, so coverage counts the captioned units only.
-    speech = sum(float(u["duration"]) for u in timeline.get("units") or [] if u.get("caption", True) is not False)
+    speech = sum(float(u.get("speech_end", u["end"])) - float(u.get("speech_start", u["start"]))
+                 for u in timeline.get("units") or [] if u.get("caption", True) is not False)
     covered = sum(float(c["end"]) - float(c["start"]) for c in timeline.get("captions") or [] if c.get("onscreen", True))
     check("caption_coverage", speech > 0 and covered / speech >= 0.9, f"字幕覆盖 {covered / max(speech, 0.01):.0%} 的语音时长（钩子页用大字代替字幕）")
     if layout is not None:
         check("layout", layout.get("status") == "done" and not layout.get("overflow") and not layout.get("caption_overflow"),
               f'预排版 {layout.get("status")}，溢出 {layout.get("overflow") or []}，超过两行的字幕 {layout.get("caption_overflow") or []}')
+    takes = (voice or {}).get("doubao_takes")
+    if takes:
+        lost = takes.get("watermark_not_found") or []
+        check("doubao_watermark", not lost, f"{len(takes.get('takes') or [])} 段豆包录音" + (f"，这些段没找到开头的“内容由豆包AI生成”，没有去掉：{', '.join(lost)}" if lost else "，开头水印均已去掉"))
     if mix is not None:
         check("mix", mix.get("status") == "pass", f'{(mix.get("final") or {}).get("lufs")} LUFS，说话时音乐低于人声 {mix.get("music_under_voice_while_speaking_db")} dB')
     frames: list[tuple[str, Path]] = []
