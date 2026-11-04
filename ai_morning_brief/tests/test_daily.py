@@ -210,6 +210,17 @@ class RenderMarkupTests(unittest.TestCase):
         self.assertIn('data-card="2"', markup)
         self.assertIn("为什么值得关注", markup)
 
+    def test_palette_follows_section_and_outro_has_no_source_line(self):
+        scenes = [{"scene_id": "story-01", "kind": "story", "progress": {"role": "头条", "index": 1, "total": 2}},
+                  {"scene_id": "story-02", "kind": "flash", "progress": {"role": "快讯", "index": 2, "total": 2}}]
+        header = render.header_markup(scenes, RUN_DATE)
+        self.assertIn('<i class="head on"></i><i class="flash on"></i>', header)
+        outro = render.scene_markup({"scene_id": "outro", "kind": "outro", "recap": [{"role": "快讯", "title": "T"}]}, RUN_DATE, {})
+        self.assertNotIn("AIHOT", outro)
+        self.assertIn('class="tag flash"', outro)
+        template = render.TEMPLATE.read_text(encoding="utf-8")
+        self.assertNotIn(".cat-industry", template, "news category no longer drives colour")
+
     def test_logo_chip_adds_name_only_for_symbol_logos(self):
         scene = {"scene_id": "s", "subject": "Grok"}
         self.assertIn('class="name"', render._subject_chip(scene, {"s": {"src": "a.png", "wide": False}}))
@@ -225,6 +236,9 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(copy["xiaohongshu"]["title"].count("（"), copy["xiaohongshu"]["title"].count("）"))
         self.assertIn("#AI", copy["hashtags"])
         self.assertIn("AI每日早报", copy["tiktok"]["title"])
+        self.assertIn(publish.SOURCE_NOTE, copy["xiaohongshu"]["body"])
+        self.assertIn(publish.SOURCE_NOTE, copy["tiktok"]["caption"])
+        self.assertIn(C.OUTRO_TEXT, copy["tiktok"]["caption"])
 
 
 class OrchestratorTests(unittest.TestCase):
@@ -293,6 +307,18 @@ class OrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(daily.main(["--date", RUN_DATE.isoformat(), "--output-root", tmp, "--status"]), 0)
             self.assertEqual(daily.main(["--date", RUN_DATE.isoformat(), "--output-root", tmp, "--check-plan"]), 1)
+
+
+class MusicPlacementTests(unittest.TestCase):
+    def test_ending_is_tail_aligned_and_loops_crossfade(self):
+        import numpy as np
+        from ai_morning_brief import audio_mix
+        track = np.arange(10, dtype=np.float32).reshape(-1, 1).repeat(2, axis=1)
+        self.assertEqual(audio_mix._tail(track, 4)[:, 0].tolist(), [6, 7, 8, 9])
+        self.assertEqual(audio_mix._tail(track, 12)[:2, 0].tolist(), [0, 0])
+        long = audio_mix._fit_length(np.ones((audio_mix.SR * 4, 2), dtype=np.float32), audio_mix.SR * 10)
+        self.assertEqual(len(long), audio_mix.SR * 10)
+        self.assertLess(float(np.max(np.abs(np.diff(long[:, 0])))), 0.01, "loop seams are crossfaded, never a hard cut")
 
 
 class MaterialPackTests(unittest.TestCase):

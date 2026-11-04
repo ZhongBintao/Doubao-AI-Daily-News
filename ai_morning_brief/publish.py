@@ -19,6 +19,7 @@ from . import config as C
 BASE_TAGS = ["#AI", "#人工智能", "#AI资讯", "#科技新闻"]
 CATEGORY_TAGS = {"ai-models": "#大模型", "ai-products": "#AI工具", "industry": "#科技行业", "paper": "#AI研究"}
 XHS_TITLE_MAX = 20
+SOURCE_NOTE = "资讯来源：AIHOT（aihot.news）"
 
 
 def _plain(text: Any) -> str:
@@ -65,13 +66,15 @@ def build_copy(run_date: date, final_plan: Mapping[str, Any], duration: float) -
     lines = [f"{i + 1}. {_plain(s.get('title'))}" for i, s in enumerate(stories)]
     date_label = f"{run_date.month}月{run_date.day}日"
     tiktok_title = f"{hook_text}｜AI每日早报 {run_date.month:02d}.{run_date.day:02d}"
-    body = "\n".join([f"{date_label} AI 要闻，{max(1, round(duration))} 秒看完：", *lines, "", _plain(hook.get("keyfact")), "", "关注我，每天一分钟看懂 AI。"])
+    # The video no longer shows the source, so both descriptions carry it (and the same closing line as the video).
+    body = "\n".join([f"{date_label} AI 要闻，{max(1, round(duration))} 秒看完：", *lines, "", _plain(hook.get("keyfact")), "",
+                      SOURCE_NOTE, C.OUTRO_TEXT])
     return {
         "date": run_date.isoformat(),
         "tiktok": {"caption": f"{tiktok_title}\n\n{body}\n\n{' '.join(hashtags)}", "title": tiktok_title},
         "xiaohongshu": {"title": _short(hook_text, XHS_TITLE_MAX), "body": body + "\n\n" + " ".join(hashtags), "cover": "covers/3x4.png"},
         "hashtags": hashtags,
-        "source_note": "资讯来源：AIHOT（aihot.news）",
+        "source_note": SOURCE_NOTE,
     }
 
 

@@ -68,12 +68,14 @@ def _subject_chip(scene: Mapping[str, Any], logos: Mapping[str, Any]) -> str:
 def header_markup(scenes: list[Mapping[str, Any]], run_date: date) -> str:
     """One persistent header for the whole video; only the progress label switches between scenes."""
 
+    # One role per story (headline/flash), so each progress segment keeps its section colour.
+    roles = ["flash" if s["kind"] == "flash" else "head" for s in scenes if s["kind"] in {"story", "flash"}]
     progress = []
     for scene in scenes:
         p = scene.get("progress") or None
         if not p:
             continue
-        segs = "".join(f'<i class="{"on" if k < p["index"] else ""}"></i>' for k in range(p["total"]))
+        segs = "".join(f'<i class="{roles[k] if k < len(roles) else "head"}{" on" if k < p["index"] else ""}"></i>' for k in range(p["total"]))
         progress.append(f'<div class="progress" data-for="{html.escape(scene["scene_id"])}">{html.escape(p["role"])} {p["index"]}/{p["total"]}<span class="segs">{segs}</span></div>')
     return (f'<div class="chrome"><div class="header"><div class="wordmark"><span class="rule"></span>{html.escape(C.DEFAULT_SHOW_NAME)}'
             f'<span class="date">{run_date.month:02d}.{run_date.day:02d}</span></div>{"".join(progress)}</div></div>')
@@ -111,16 +113,15 @@ def scene_markup(scene: Mapping[str, Any], run_date: date, logos: Mapping[str, A
         if scene.get("why"):
             cards.append(_card("为什么值得关注", "", scene.get("why"), 2, extra=" flash-card why"))
         return (f'<section class="scene kind-flash cat-{cat}" id="{sid}"><div class="body">'
-                f'<div class="kicker-row"><span class="kicker teal">快讯</span><span class="section">{html.escape(str(scene.get("section") or ""))}</span>{_subject_chip(scene, logos)}</div>'
+                f'<div class="kicker-row"><span class="kicker">快讯</span><span class="section">{html.escape(str(scene.get("section") or ""))}</span>{_subject_chip(scene, logos)}</div>'
                 f'<h2 class="story-title fit" data-max="72" data-min="54" data-lines="3">{html.escape(str(scene.get("title") or ""))}</h2>'
                 f'<div class="cards"><div class="cards-inner">{"".join(cards)}</div></div></div></section>')
-    recap = "".join(f'<li><span class="tag{" teal" if item.get("role") == "快讯" else ""}">{html.escape(str(item.get("role") or ""))}</span>'
+    recap = "".join(f'<li><span class="tag{" flash" if item.get("role") == "快讯" else ""}">{html.escape(str(item.get("role") or ""))}</span>'
                     f'<span class="t">{html.escape(str(item.get("title") or ""))}</span></li>' for item in scene.get("recap") or [])
     recap_block = f'<div class="recap"><div class="recap-label">今天讲了</div><ol>{recap}</ol></div>' if recap else ""
     return (f'<section class="scene kind-outro cat-ai-models{" has-recap" if recap else ""}" id="{sid}"><div class="orbit"></div><div class="body">'
             f'<div class="outro-mark">{html.escape(C.DEFAULT_SHOW_NAME)}</div><div class="outro-rule"></div>{recap_block}'
-            f'<div class="outro-text">{html.escape(str(scene.get("text") or C.OUTRO_TEXT))}</div>'
-            f'<div class="outro-sub">资讯来源：AIHOT · 明天见</div></div></section>')
+            f'<div class="outro-text">{html.escape(str(scene.get("text") or C.OUTRO_TEXT))}</div></div></section>')
 
 
 def _is_wordmark(path: Path) -> bool:

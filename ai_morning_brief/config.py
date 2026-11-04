@@ -166,7 +166,7 @@ PAUSE_AFTER_HOOK = 0.30
 PAUSE_BETWEEN_SENTENCES = 0.14
 PAUSE_BETWEEN_STORIES = 0.40
 OUTRO_TEXT = "关注我，每天看懂 AI 大事。"
-OUTRO_MIN_SECONDS = 4.5          # long enough to read the recap list
+OUTRO_MIN_SECONDS = 5.5          # read the recap; the tail-aligned ending track resolves on the last frame
 
 # Voice
 TTS_PROVIDERS = ("doubao", "edge")
@@ -175,7 +175,7 @@ EDGE_TTS_VOICE = os.environ.get("EDGE_TTS_VOICE", "zh-CN-YunxiNeural")
 EDGE_TTS_RATE = os.environ.get("EDGE_TTS_RATE", "+10%")
 
 # Mix: music sits well under the voice and ducks further while speaking.
-MIX_MUSIC_UNDER_VOICE_DB = 18.0
+MIX_MUSIC_UNDER_VOICE_DB = 14.0   # bed level; ducked DUCK_EXTRA_DB (4 dB) more while speaking -> ~18 dB under the voice
 MIX_SIDECHAIN_RATIO = 4.0
 MIX_TARGET_LUFS = -16.0
 MIX_TRUE_PEAK = -1.5

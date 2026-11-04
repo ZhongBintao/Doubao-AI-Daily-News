@@ -22,29 +22,29 @@ COVER_CSS = """
 @font-face { font-family: "Noto Sans SC"; src: url("__FONT__") format("truetype"); font-weight: 100 900; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: __W__px; height: __H__px; overflow: hidden; }
-body { font-family: "Noto Sans SC", "WenQuanYi Zen Hei", sans-serif; background: #f7f4ee; color: #20282b; position: relative; }
-body::before { content: ""; position: absolute; inset: 0; opacity: .55; background-image: radial-gradient(circle at 86% 10%, rgba(207,112,74,.22), rgba(207,112,74,0) 36%),
+body { font-family: "Noto Sans SC", "WenQuanYi Zen Hei", sans-serif; background: #f7f4ee; color: #1f2629; position: relative; }
+body::before { content: ""; position: absolute; inset: 0; opacity: .55; background-image: radial-gradient(circle at 86% 10%, rgba(208,100,58,.22), rgba(208,100,58,0) 36%),
   linear-gradient(rgba(32,40,43,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(32,40,43,.045) 1px, transparent 1px); background-size: auto, 72px 72px, 72px 72px; }
-.orbit { position: absolute; width: 820px; height: 820px; right: -300px; top: 60px; border: 2px solid rgba(63,115,118,.18); border-radius: 50%; }
-.orbit::before { content: ""; position: absolute; inset: 90px; border: 2px dashed rgba(207,112,74,.26); border-radius: 50%; }
+.orbit { position: absolute; width: 820px; height: 820px; right: -300px; top: 60px; border: 2px solid rgba(31,38,41,.10); border-radius: 50%; }
+.orbit::before { content: ""; position: absolute; inset: 90px; border: 2px dashed rgba(208,100,58,.26); border-radius: 50%; }
 .wrap { position: absolute; left: 72px; right: 72px; top: __TOP__px; bottom: __BOTTOM__px; display: flex; flex-direction: column; }
 .mast { display: flex; align-items: center; justify-content: space-between; }
-.mark { display: flex; align-items: center; gap: 16px; color: #cf704a; font: 900 50px/1 "Noto Sans SC"; }
-.mark i { width: 14px; height: 50px; border-radius: 99px; background: #cf704a; }
-.date { font: 800 40px/1 "Noto Sans SC"; color: #3f7376; letter-spacing: .04em; }
+.mark { display: flex; align-items: center; gap: 16px; color: #d0643a; font: 900 50px/1 "Noto Sans SC"; }
+.mark i { width: 14px; height: 50px; border-radius: 99px; background: #d0643a; }
+.date { font: 800 40px/1 "Noto Sans SC"; color: #737a77; letter-spacing: .04em; }
 .main { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 .row { display: flex; align-items: center; gap: 18px; margin-bottom: 40px; }
-.kicker { padding: 14px 26px; border-radius: 16px; background: #cf704a; color: #fff; font: 900 40px/1 "Noto Sans SC"; letter-spacing: .08em; }
-.subject { display: inline-flex; align-items: center; height: 92px; padding: 0 28px; border-radius: 22px; background: #fffefa; border: 1px solid #dedbd2; font: 900 44px/1 "Noto Sans SC"; box-shadow: 0 12px 28px rgba(32,40,43,.08); }
+.kicker { padding: 14px 26px; border-radius: 16px; background: #d0643a; color: #fff; font: 900 40px/1 "Noto Sans SC"; letter-spacing: .08em; }
+.subject { display: inline-flex; align-items: center; height: 92px; padding: 0 28px; border-radius: 22px; background: #fffefa; border: 1px solid #e3ded4; font: 900 44px/1 "Noto Sans SC"; box-shadow: 0 12px 28px rgba(32,40,43,.08); }
 .subject img { height: 52px; }
 h1 { font-weight: 900; font-size: 132px; line-height: 1.1; letter-spacing: -.02em; text-wrap: balance; }
-h1 em { font-style: normal; color: #cf704a; }
-.rule { width: 120px; height: 12px; border-radius: 99px; background: #cf704a; margin: 48px 0 40px; }
-.list { background: #fffefa; border: 1px solid #dedbd2; border-radius: 30px; padding: 32px 36px; box-shadow: 0 18px 36px rgba(32,40,43,.09); }
-.list .label { color: #3f7376; font: 800 32px/1 "Noto Sans SC"; letter-spacing: .06em; margin-bottom: 18px; }
+h1 em { font-style: normal; color: #d0643a; }
+.rule { width: 120px; height: 12px; border-radius: 99px; background: #d0643a; margin: 48px 0 40px; }
+.list { background: #fffefa; border: 1px solid #e3ded4; border-radius: 30px; padding: 32px 36px; box-shadow: 0 18px 36px rgba(32,40,43,.09); }
+.list .label { color: #737a77; font: 800 32px/1 "Noto Sans SC"; letter-spacing: .06em; margin-bottom: 18px; }
 .list li { list-style: none; display: flex; gap: 16px; font: 700 38px/1.35 "Noto Sans SC"; margin-top: 12px; }
-.list li b { color: #cf704a; }
-.foot { font: 800 34px/1.3 "Noto Sans SC"; color: #6d7371; letter-spacing: .04em; }
+.list li b { color: #d0643a; }
+.foot { font: 800 34px/1.3 "Noto Sans SC"; color: #737a77; letter-spacing: .04em; }
 .w { white-space: nowrap; }
 """
 

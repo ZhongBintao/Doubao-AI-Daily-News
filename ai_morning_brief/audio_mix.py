@@ -1,9 +1,18 @@
 """v6 mix: per-sentence voice placed on the timeline over a quiet music bed.
 
 * voice units are placed at their exact timeline start
-* music: opening -> middle loop -> ending, each section level-matched to sit
-  ``MIX_MUSIC_UNDER_VOICE_DB`` below the voice, then ducked further by a
-  voice-keyed envelope (30 ms attack / 350 ms release)
+* music (only the three tracks in ``assets/music``), placed to fit the v6 template:
+    - opening: from frame 0 under the hook, its tail fading out over
+      ``OPENING_TAIL`` seconds once the first headline is on screen
+    - middle-loop: starts exactly when the first headline appears, so its first
+      accent lands on that cut; it covers the whole programme (220 s > the
+      3-minute cap) and only loops, with a crossfade, if a programme is longer
+    - ending: tail-aligned, so its final note lands on the last frame; its quiet
+      first seconds sit under the last story
+  Each track gets one gain from its whole-file level (not from the slice used),
+  so the bed sits ``MIX_MUSIC_UNDER_VOICE_DB`` below the voice and a voice-keyed
+  envelope (30 ms attack / 350 ms release) ducks it ``DUCK_EXTRA_DB`` more while
+  someone speaks (about 18 dB under the voice in total)
 * soft whoosh at every story change
 * final two-pass loudnorm to -16 LUFS / -1.5 dBTP
 """
@@ -23,7 +32,11 @@ SR = 48000
 MUSIC_DIR = Path(__file__).resolve().parent / "assets" / "music"
 MUSIC = {"opening": MUSIC_DIR / "opening.mp3", "middle": MUSIC_DIR / "middle-loop.mp3", "ending": MUSIC_DIR / "ending.mp3"}
 DUCK_EXTRA_DB = 4.0
-FADE = 0.8
+FADE = 0.8            # crossfade between sections
+OPENING_TAIL = 2.0    # opening keeps ringing this long into the first headline, fading out
+MIDDLE_FADE_IN = 0.3  # short, so the middle track's first accent still reads as the cut
+END_FADE = 0.15       # click guard only: the ending track ends by itself
+LOOP_CROSSFADE = 1.5
 
 
 class MixError(RuntimeError):
@@ -71,12 +84,40 @@ def _fade(x: np.ndarray, fade_in: float, fade_out: float) -> np.ndarray:
 
 
 def _fit_length(x: np.ndarray, length: int) -> np.ndarray:
+    """First ``length`` samples; loops with a crossfade only when the track is too short."""
+
     if length <= 0:
         return np.zeros((0, x.shape[1]), dtype=np.float32)
     if len(x) >= length:
         return x[:length]
-    reps = int(np.ceil(length / max(1, len(x))))
-    return np.tile(x, (reps, 1))[:length]
+    xf = min(int(LOOP_CROSSFADE * SR), len(x) // 4)
+    out = x.copy()
+    ramp = np.linspace(0, 1, xf, dtype=np.float32)[:, None]
+    while len(out) < length:
+        out[-xf:] = out[-xf:] * (1 - ramp) + x[:xf] * ramp
+        out = np.concatenate([out, x[xf:]])
+    return out[:length]
+
+
+def _tail(x: np.ndarray, length: int) -> np.ndarray:
+    """Last ``length`` samples (front-padded with silence if the track is shorter)."""
+
+    if length <= len(x):
+        return x[len(x) - length:]
+    return np.concatenate([np.zeros((length - len(x), x.shape[1]), dtype=np.float32), x])
+
+
+def _music_level_db(x: np.ndarray, window: int = 4800) -> float:
+    """Level of a music file over its non-silent 100 ms blocks (whole file, so a slice never changes the gain)."""
+
+    mono = x.mean(axis=1) if x.ndim == 2 else x
+    n = len(mono) // window
+    if n == 0:
+        return _rms_db(mono)
+    blocks = mono[: n * window].reshape(n, window)
+    levels = np.sqrt(np.mean(np.square(blocks, dtype=np.float64), axis=1))
+    sounding = blocks[levels > 10 ** (-70 / 20)]
+    return _rms_db(sounding) if sounding.size else _rms_db(mono)
 
 
 def _whoosh(length: float = 0.55) -> np.ndarray:
@@ -151,20 +192,27 @@ def mix(run_dir: Path, timeline: Mapping[str, Any], voice: Mapping[str, Any]) ->
     outro_start = next((s["start"] for s in scenes if s["kind"] == "outro"), max(0.0, total - 3.0))
     target_db = voice_db - C.MIX_MUSIC_UNDER_VOICE_DB
     bed = np.zeros((length, 2), dtype=np.float32)
+    tracks = {name: _decode(path) for name, path in MUSIC.items()}
+    ending_len = len(tracks["ending"]) / SR
+    # The ending is tail-aligned: it starts (total - its length) so its last note is the last frame.
+    ending_start = max(hook_end + OPENING_TAIL, total - ending_len)
     sections = {
-        "opening": (0.0, min(total, hook_end + FADE)),
-        "middle": (max(0.0, hook_end - FADE), min(total, outro_start + FADE)),
-        "ending": (max(0.0, outro_start - FADE), total),
+        "opening": (0.0, min(total, hook_end + OPENING_TAIL)),
+        "middle": (min(total, hook_end), min(total, ending_start + FADE)),
+        "ending": (ending_start, total),
     }
+    fades = {"opening": (0.0, OPENING_TAIL), "middle": (MIDDLE_FADE_IN, FADE), "ending": (FADE, END_FADE)}
     gains: dict[str, float] = {}
     for name, (start, end) in sections.items():
-        if end - start <= 0.05:
+        n = int((end - start) * SR)
+        if n <= int(0.05 * SR):
             continue
-        source = _decode(MUSIC[name])
-        segment = _fit_length(source, int((end - start) * SR))
-        gain_db = target_db - _rms_db(segment.mean(axis=1))
+        source = tracks[name]
+        segment = _tail(source, n) if name == "ending" else _fit_length(source, n)
+        gain_db = target_db - _music_level_db(source)
         gains[name] = round(gain_db, 2)
-        segment = _fade(segment * (10 ** (gain_db / 20)), FADE if start > 0 else 0.0, FADE)
+        fade_in, fade_out = fades[name]
+        segment = _fade(segment * (10 ** (gain_db / 20)), fade_in, fade_out)
         s = int(start * SR)
         bed[s:s + len(segment)] += segment[: length - s]
     env = _envelope(voice_track)
@@ -201,6 +249,8 @@ def mix(run_dir: Path, timeline: Mapping[str, Any], voice: Mapping[str, Any]) ->
         "music_under_voice_while_speaking_db": round(gap, 2),
         "section_gains_db": gains,
         "sections": {k: [round(a, 3), round(b, 3)] for k, (a, b) in sections.items()},
+        "alignment": {"middle_starts_with_first_story": round(hook_end, 3), "ending_track_seconds": round(ending_len, 3),
+                      "ending_tail_aligned": abs((total - ending_start) - ending_len) < 0.05},
         "final": final_measure,
         "status": "pass" if abs(final_measure["lufs"] - C.MIX_TARGET_LUFS) <= 1.0 and final_measure["true_peak"] <= C.MIX_TRUE_PEAK + 0.5 and C.MIX_MUSIC_UNDER_VOICE_DB - 2 <= gap <= C.MIX_MUSIC_UNDER_VOICE_DB + DUCK_EXTRA_DB + 6 else "fail",
     }
