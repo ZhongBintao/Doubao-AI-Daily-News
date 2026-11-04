@@ -55,7 +55,7 @@ report     汇总
 - 输入：`artifacts/director_task.json`（步骤、规则、预算、候选池 pool、推荐 recommended、示范 examples、输出模板）。
 - 输出：`artifacts/director_plan.json`，版本 `6.2`；校验：`python -m ai_morning_brief.daily --date D --check-plan`。
 - 结构：`picks`（头条 1–3、快讯 0–5，只能从 pool 选）→ `hook`（钩子 ≤24 字，可含一对【】；`keyfact` ≤60 字）→ `stories`（先头条后快讯，与 picks 同序）。每条 pool 带素材包与 `budget`（随素材深度浮动，见 `config.STORY_BUDGETS`）。
-- 标题（头条与快讯）：抓眼球的短视频标题。从 8 种套路（反差 / 数字冲击 / 提问悬念 / 与你有关 / 揭秘 / 对立 / 剧透一半 / 直接结论）里选 3 种各写一个 `title_candidates`，再挑一个原样填进 `title`（≤30 字）；提问悬念 / 揭秘 / 剧透一半必须写 `answer_card`（答案在第几张卡）。好奇心但不夸张：禁用夸张词（`TITLE_BANNED`）、“？”“！”合计 ≤1、不与钩子雷同。
+- 标题（头条与快讯）：抓眼球的短视频标题。从 8 种套路（反差 / 数字冲击 / 提问悬念 / 与你有关 / 揭秘 / 对立 / 剧透一半 / 直接结论）里选 3 种各写一个 `title_candidates`，再挑一个原样填进 `title`（≤30 字）；提问悬念 / 揭秘 / 剧透一半必须写 `answer_card`（答案在第几张卡）。语气按用户选定的 A 档：口语、带一个有画面的动词或比喻、最多一个反问，事实不变（对照表与反面例子见 `TITLE_TONE_EXAMPLES / TITLE_TONE_DONTS`）。好奇心但不夸张：禁用夸张词（`TITLE_BANNED`）、“？”“！”合计 ≤1、不与钩子雷同。
 - 头条：`subject`、标题、按 `budget.cards` 写卡片（`angle` 不上屏、只决定图标，从 `发生了什么 / 关键数字 / 怎么做到的 / 各方说法 / 背景 / 为什么重要 / 对你的影响 / 还没确定 / 下一步` 里选且不重复，素材足够时至少一张“各方说法 / 背景 / 为什么重要 / 对你的影响”；`headline` ≤16 是上屏的小钩子，不能是栏目名；body ≤60，两者不能重复；标题 + 小标题问句合计 ≤2）、逐句 `narration`（每句 ≤42 字、句末标点、`card` 从 1 开始按顺序、每张卡至少一句；合计落在 `budget.headline_narration`，rich 素材 150–300 字）。素材有“尚未验证/尚未确定”时必须保留。
 - 快讯：`subject`、标题（同上，3 选 1）、`point` ≤60 字（发生了什么）、`why` ≤60 字（所以呢，素材足够时必填）、`narration` 2–3 句（第 1 句 card=1 讲 point，后面 card=2 讲 why）。全片旁白 ≤900 字（约 3 分钟）。
 - 字数按可见字符计算，英文单词按字母数计。校验失败最多重试 2 次，仍失败自动使用兜底稿。

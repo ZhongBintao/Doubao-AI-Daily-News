@@ -26,9 +26,18 @@ def _plain(text: Any) -> str:
     return re.sub(r"[【】]", "", str(text or "")).strip()
 
 
+def _compact(text: str) -> str:
+    """Drop the spaces between Chinese and Latin text (Xiaohongshu counts every space)."""
+
+    cjk = r"[\u4e00-\u9fff，。！？：；、“”（）]"
+    return re.sub(rf"(?<={cjk})\s+|\s+(?={cjk})", "", text)
+
+
 def _short(text: str, maximum: int) -> str:
     """Shorten at punctuation; never leave an unclosed bracket or a cut word."""
 
+    if len(text) > maximum:
+        text = _compact(text)
     if len(text) <= maximum:
         return text
     out = ""

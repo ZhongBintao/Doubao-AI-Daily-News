@@ -174,7 +174,24 @@ TITLE_FORMULAS = {
 SUSPENSE_FORMULAS = ("提问悬念", "揭秘", "剧透一半")   # these must name the card that pays them off
 TITLE_CANDIDATES = 3
 TITLE_BANNED = ("震惊", "炸裂", "颠覆", "史上最", "全网", "速看", "必看", "太可怕", "疯了", "刚刚", "重磅", "惊呆", "吓尿",
-                "凉了", "封神", "绝了", "离谱", "爆了", "逆天", "吊打", "碾压", "王炸", "细思极恐", "万万没想到")
+                "凉了", "封神", "绝了", "离谱", "爆了", "逆天", "吊打", "碾压", "王炸", "细思极恐", "万万没想到",
+                "狂飙", "暴涨", "暴跌", "杀疯", "血洗", "秒杀", "慌了", "完爆", "天花板")
+# Tone the user chose (2026-11-04, "A 档"): colloquial, a vivid verb or metaphor, a rhetorical question at most -
+# punchy but every word still true to the material. Shown to the writer as before/after pairs.
+TITLE_TONE_EXAMPLES = [
+    {"before": "孩子用的 Google，明年起 AI 默认关闭", "after": "AI 和搜索绑死，Google 给学校出了道单选题"},
+    {"before": "AMD 明年八成销售额，都押在一样东西上", "after": "AMD 放话：明年营收要涨八成"},
+    {"before": "ChatGPT 的搜索量，已经是 Google 的两成", "after": "Google 的五分之一：ChatGPT 搜索量追上来了"},
+    {"before": "你用的 AI，真是它说的那个模型吗？", "after": "AI 也会被偷换？Anthropic 做了个“验货”工具"},
+    {"before": "Mistral Large 4 开放权重，还公开了研发全过程", "after": "Mistral 把 Large 4 的“菜谱”也公开了"},
+    {"before": "关 AI，就得连搜索一起关（卡片）", "after": "只想关 AI？没这个选项"},
+]
+# Punchy but false - never write these (they change the fact, not just the tone).
+TITLE_TONE_DONTS = [
+    {"text": "每 5 次搜索，ChatGPT 就分走 1 次", "why": "素材说的是“相当于 Google 的 20%”，不是抢走份额"},
+    {"text": "你花钱买的 AI，可能被偷偷换成便宜货", "why": "素材只说能防止偷换，没说正在发生"},
+    {"text": "欧洲最强开源模型，连研发秘方都公开了", "why": "“欧洲最强”素材里没有"},
+]
 # Column-style headings read as machine output; a card title must say something about this story.
 GENERIC_HEADINGS = CARD_ANGLES + ("核心信息", "要点", "详情", "总结", "概述", "简介", "最新进展", "关键细节", "补充说明", "后续进展",
                                   "背景介绍", "事件回顾", "影响分析", "专家观点", "各方观点", "数据一览")

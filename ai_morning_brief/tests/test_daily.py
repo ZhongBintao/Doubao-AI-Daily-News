@@ -238,6 +238,7 @@ class PublishTests(unittest.TestCase):
         self.assertIn("#AI", copy["hashtags"])
         self.assertIn("AI每日早报", copy["tiktok"]["title"])
         self.assertIn(publish.SOURCE_NOTE, copy["xiaohongshu"]["body"])
+        self.assertEqual(publish._short("不要 AI？那 Google 搜索也别用了", publish.XHS_TITLE_MAX), "不要AI？那Google搜索也别用了")
         self.assertIn(publish.SOURCE_NOTE, copy["tiktok"]["caption"])
         self.assertIn(C.OUTRO_TEXT, copy["tiktok"]["caption"])
 
