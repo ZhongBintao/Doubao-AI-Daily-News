@@ -1,13 +1,39 @@
 # 交接说明 · v6 竖屏版（2026-11-04，模板定稿 + 豆包长录音配音）
 
-新对话请先读本文件，再读 `AGENTS.md` 与 `docs/design/v6-vertical-template.md`（第 10–12 节是修改历程）。
+新对话请先读本文件，再读 `AGENTS.md` 与 `docs/design/v6-vertical-template.md`（第 10–13 节是修改历程）。
 
 ## 当前状态
 
 - 分支：`design/v6-vertical-template`（**不要合并到 main，不要开 PR**，用户明确要求单独放分支）
-- 模板与写稿契约已定稿（2026-11-04 用户确认）；豆包配音改为几段长录音（同日下午，见下文）；151 个离线测试全部通过
+- 模板与写稿契约已定稿（2026-11-04 用户确认）；豆包配音改为几段长录音（同日下午，见下文）；152 个离线测试全部通过
+- 豆包配音已用 2 段真实豆包音频验证去水印和切句（全部正确），整条流程已在本环境用 edge 模拟豆包长录音跑通；**下一步：同事在豆包云电脑上实跑一期**（检查清单见下一节）
 - 参考成片：`--date 2026-11-04 --tts edge`，导演稿 `docs/handoff/2026-11-04-director_plan.json`（A 档标题），2 头条 + 4 快讯，约 129 秒，自检通过
 - 历史：10-30（第一期，6.0 契约，44 秒，内容单薄）→ 11-03（6.1 素材包，155 秒，`docs/handoff/2026-11-03-director_plan.json` 已转为 6.2）→ 11-04（6.2 钩子标题）
+
+## 豆包实跑检查清单（给同事）
+
+**怎么跑**：在豆包云电脑上照 `entry-skill/ai-daily-news-studio/SKILL.md` 做（第 0 步会拉 `design/v6-vertical-template` 并运行 `bootstrap_env.sh`，必须看到 `BOOTSTRAP_OK`）。交接点只有两个：
+
+1. **director**（写稿）：照 `skills/ai-brief-editorial-writer/SKILL.md` 写 `director_plan.json`，`--check-plan` 校验。写不好也没关系，第 2 次失败自动用兜底稿。
+2. **voice**（配音）：照 `skills/ai-brief-doubao-voice/SKILL.md`。`tts_manifest.json` 的 `todo` 通常只有 **1–3 条**，每条是几条新闻连读的一整段（约 1–2 分钟）：
+   - 每条调用一次 `text_to_audio_plus`，`request` **原样**发送（已含动漫少女音色描述和原文），不要加语速要求，不要拆开或合并；
+   - 返回的音频**原样**保存到该条 `output_path`（如 `assets/audio/raw/t01.wav`），开头的“内容由豆包AI生成”不用处理；
+   - 一次只发一条；遇到“合成太频繁”等 10 秒重试同一条，最多 3 次；
+   - 存好后重新运行同一条命令。若某段切不开或没读完，会再交接一次，`todo` 里出现 `t01-1`、`t01-2` 这样的半段，照做即可。
+
+**重点看什么**（跑完后在 `outputs/日期/` 里）：
+
+| 看哪里 | 正常的样子 | 不正常时 |
+|---|---|---|
+| `artifacts/tts_manifest.json` → `takes[].watermark` | 每段 `status: cut`，`pause_start_seconds` ≈ 2.25 | `not-found`：把那段原始音频发回来 |
+| `takes[].split` | `status: ok`，`speed_ratios` 都在 0.55–1.8 之间 | `uncut` / `truncated` / `too-short`：会自动拆半重请求；记下发生在哪一段 |
+| `takes[].raw_seconds` | 每段 ≤ 120 秒（目标约 100 秒） | 接近 120 秒或豆包拒绝长文本：设 `AI_DAILY_DOUBAO_TAKE_SECONDS=60` 重跑，段会变短变多 |
+| `artifacts/selfcheck.json` | `status: pass`，含 `doubao_watermark` 一项 | 把 `checks` 里失败的项发回来 |
+| 成片 `renders/ai-daily-news-日期.mp4` | 开头没有“内容由豆包AI生成”；句与句之间节奏自然；换条有停顿；字幕、卡片高亮跟着声音走 | 记下时间点和现象 |
+
+**请发回**：`artifacts/tts_manifest.json`、`artifacts/voice_manifest.json`、`artifacts/selfcheck.json`、`run_state.json`、`outputs/_state/doubao_speech_rate.json`、`artifacts/selfcheck/contact-sheet.png`；有问题的段再附 `assets/audio/raw/` 里对应的原始音频（`t01.wav` 等）。单独检查某个原始音频的水印：`python3 scripts/check_doubao_watermark.py assets/audio/raw/t01.wav`。
+
+**已知要留意**：豆包对 100 秒左右长文本的稳定性、新闻之间的换行会不会让停顿变长（不影响切句，只影响节奏）、第一次运行没有实测语速记录（用默认 4.5，偏保守，段数可能比实际需要多一段）。
 
 ## 用户已确定的决定
 
@@ -28,7 +54,7 @@
 
 ## 还没验证 / 可能要处理（都不影响在本环境出片）
 
-- **豆包环境实测**：长录音分段与去水印（规则按同事实测的结构写成，并用一期豆包成片核对过）、`bootstrap_env.sh`、以及豆包云电脑上的写稿模型能否稳定写出 6.2 导演稿（3 个标题候选 + 钩子小标题）都没在豆包环境跑过；校验失败 2 次会自动用兜底稿（兜底标题偏保守，用 AIHOT 原标题）
+- **豆包环境实测**：去水印和切句已用 2 段真实豆包音频验证；但整期长录音交接、`bootstrap_env.sh`、以及豆包云电脑上的写稿模型能否稳定写出 6.2 导演稿（3 个标题候选 + 钩子小标题）还没在豆包环境完整跑过（见上面的检查清单）；写稿校验失败 2 次会自动用兜底稿（兜底标题偏保守，用 AIHOT 原标题；兜底文字偶尔会在长句的 42 字处硬切）
 - **语速**：写稿预算按 5.5 单位/秒估算（edge 约 6.5，豆包自然语速约 5.7）；豆包分段用实测语速（`outputs/_state/doubao_speech_rate.json`，云电脑重置会丢，丢了就回到默认 4.5）
 - **已播记录**存在 `outputs/_state/aired_events.json`，云电脑重置会丢（丢失时用前 3 天日报头条近似重建）
 - **补跑 7 天以前的日期**：站内搜索与热点都取不到，素材退回薄素材
@@ -62,6 +88,8 @@
 
 - 改写某句旁白后重跑，配音会沿用旧音频（`voice._drop_stale_audio`）
 - 小红书标题因中英文空格被截断（`publish._compact`）
+- 兜底稿在实时数据下会校验失败（加句号后超过 42 字；`1,024` 被切成 `024`；链接和括号截断进了旁白）（`director._fit` / `_clauses` / `_sentences`）
+- 同事提交带来的：封面阶段 NameError（`covers.py`）；去水印误切所有音频；`test_daily.py` 被替换
 
 ## 关键文件
 
@@ -84,7 +112,7 @@
 python3 -m pip install -q numpy Pillow edge-tts
 mkdir -p .local/fonts && curl -sSL -o .local/fonts/NotoSansSC-VF.ttf \
   "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf"
-python3 -m unittest discover -s ai_morning_brief/tests          # 应为 151 OK
+python3 -m unittest discover -s ai_morning_brief/tests          # 应为 152 OK
 python3 -m ai_morning_brief.daily --date 2026-11-04 --tts edge  # 停在 director 交接（用当天日期即可）
 cp docs/handoff/2026-11-04-director_plan.json outputs/2026-11-04/artifacts/director_plan.json  # 只在同一天、pool 未变时可直接用
 python3 -m ai_morning_brief.daily --date 2026-11-04 --check-plan
