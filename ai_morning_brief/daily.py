@@ -33,7 +33,7 @@ from .aihot_v2 import AIHotV2Client
 
 STAGES = ("bootstrap", "fetch", "director", "voice", "mix", "render", "selfcheck", "cover", "publish", "report")
 STAGE_LABELS = {
-    "bootstrap": "环境自检", "fetch": "AIHOT 取数与选题", "director": "导演稿（写稿）", "voice": "逐句配音",
+    "bootstrap": "环境自检", "fetch": "AIHOT 取数与选题", "director": "导演稿（写稿）", "voice": "配音（几段长录音）",
     "mix": "时间轴与混音", "render": "视频渲染", "selfcheck": "成片自检", "cover": "封面", "publish": "发布文案与整合包", "report": "完成汇总",
 }
 EXIT_OK, EXIT_FAILURE, EXIT_HANDOFF, EXIT_STOPPED = 0, 1, 3, 4
